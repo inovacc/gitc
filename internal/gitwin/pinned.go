@@ -9,8 +9,11 @@ package gitwin
 // changing it requires editing source and rebuilding. Each asset is still
 // sha256-verified at download time (see EnsurePinned), so a tampered URL or a
 // corrupt download is rejected regardless.
+// pinnedVersion is the git-for-windows release gitc pins by default.
+const pinnedVersion = "v2.55.0.windows.2"
+
 var pinnedManifest = Manifest{
-	Version: "v2.55.0.windows.2",
+	Version: pinnedVersion,
 	Source:  "https://github.com/git-for-windows/git/releases/tag/v2.55.0.windows.2",
 	Flavor:  "MinGit",
 	Assets: map[string]ManifestAsset{

@@ -55,7 +55,7 @@ func TestSelectMinGitBusyboxFallback(t *testing.T) {
 }
 
 func TestSanitizeTag(t *testing.T) {
-	if s := sanitizeTag("v2.55.0.windows.2"); s != "v2.55.0.windows.2" {
+	if s := sanitizeTag(pinnedVersion); s != pinnedVersion {
 		t.Fatalf("got %q", s)
 	}
 
