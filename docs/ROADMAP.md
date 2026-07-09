@@ -1,4 +1,5 @@
 # Roadmap
+<!-- rev:001 -->
 
 gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
 agents** — stop agents leaking secrets/sensitive data through git (see the
@@ -17,6 +18,23 @@ README "Purpose" section).
 - **Self-provisioned git backend** — `git fetch-git` downloads a prebuilt,
   sha256-pinned MinGit from git-for-windows (ADR 0004); no build toolchain.
 - **Release** — goreleaser publishes download binaries for 6 targets.
+
+## Test coverage
+
+Total **43.9%** (`go test -cover ./...`).
+
+| Package | % | | Package | % |
+|---------|---|---|---------|---|
+| router | 100.0 | | scan | 9.8 |
+| policy | 96.0 | | installer | 0.0 |
+| store | 74.4 | | paths | 0.0 |
+| enrich | 62.2 | | runner | 0.0 |
+| filterrepo | 62.0 | | shortcut | 0.0 |
+| backend | 48.1 | | main | 0.0 |
+| gitwin | 15.7 | | | |
+
+Raising the 0%-covered packages toward a **≥ 70%** total is tracked in
+[IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) (TST-1..6).
 
 ## Next — the hard gates (leak prevention)
 
