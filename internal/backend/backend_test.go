@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -51,9 +52,26 @@ func TestFindsDistinctSystemGit(t *testing.T) {
 	if !ok {
 		t.Fatal("expected to find the distinct system git")
 	}
-	if filepath.Clean(got) != filepath.Clean(real) {
+	if !samePath(got, real) {
 		t.Fatalf("found %q, want %q", got, real)
 	}
+}
+
+// samePath compares two paths after symlink resolution (Resolve returns
+// EvalSymlinks-resolved paths; CI temp dirs are symlinked: macOS /var ->
+// /private/var, Windows 8.3 short names). Case-insensitive on Windows.
+func samePath(a, b string) bool {
+	if r, err := filepath.EvalSymlinks(a); err == nil {
+		a = r
+	}
+	if r, err := filepath.EvalSymlinks(b); err == nil {
+		b = r
+	}
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // TestResolvePrefersVendored: a usable vendored build wins over PATH.
@@ -73,10 +91,10 @@ func TestResolvePrefersVendored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if b.Kind != KindVendored {
-		t.Fatalf("Kind = %v, want vendored", b.Kind)
+	if b.Kind != KindManaged {
+		t.Fatalf("Kind = %v, want managed", b.Kind)
 	}
-	if filepath.Clean(b.Path) != filepath.Clean(vendored) {
+	if !samePath(b.Path, vendored) {
 		t.Fatalf("Path = %q, want %q", b.Path, vendored)
 	}
 }

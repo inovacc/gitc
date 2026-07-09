@@ -12,14 +12,17 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/enrich"
 	"github.com/inovacc/gitc/internal/filterrepo"
+	"github.com/inovacc/gitc/internal/gitwin"
 	"github.com/inovacc/gitc/internal/installer"
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/policy"
@@ -29,6 +32,13 @@ import (
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
 )
+
+// gitReleaseJSON is the pinned git-for-windows MinGit manifest (URLs + sha256
+// per platform), embedded so `gitc gitc fetch-git` can download and verify a
+// known-good git without a network query for the version list.
+//
+//go:embed git_release.json
+var gitReleaseJSON []byte
 
 // version is injected at build time via -ldflags "-X main.version=...".
 var version = "dev"
@@ -62,7 +72,7 @@ func run(args []string) int {
 	// Passthrough and shortcuts require a resolved backend. Fail fast before
 	// any exec if none is available.
 	self, _ := os.Executable()
-	b, err := backend.Resolve(vendoredGitPath(), self)
+	b, err := backend.Resolve(managedGitPath(), self)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 		return 1
@@ -101,7 +111,7 @@ func runMeta(args []string, st *store.Store) int {
 		return 0
 	case "where":
 		self, _ := os.Executable()
-		b, err := backend.Resolve(vendoredGitPath(), self)
+		b, err := backend.Resolve(managedGitPath(), self)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 			return 1
@@ -157,6 +167,8 @@ func runMeta(args []string, st *store.Store) int {
 		return runScrub(args[1:])
 	case "scan":
 		return runScan(args[1:])
+	case "fetch-git":
+		return runFetchGit(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "gitc: unknown command %q\n", cmd)
 		printMetaHelp()
@@ -164,11 +176,81 @@ func runMeta(args []string, st *store.Store) int {
 	}
 }
 
+// runFetchGit downloads a git backend (git-for-windows MinGit) and unpacks it
+// into the git cache. By default it uses the embedded, hash-pinned manifest
+// (git_release.json); --latest queries the git-for-windows releases API for the
+// newest version (no pinned hash); --list shows recent releases.
+func runFetchGit(args []string) int {
+	var list, latest bool
+	for _, a := range args {
+		switch a {
+		case "--list":
+			list = true
+		case "--latest":
+			latest = true
+		default:
+			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
+			return 2
+		}
+	}
+	ctx := context.Background()
+	base := paths.GitCacheDir()
+
+	if list {
+		rels, err := gitwin.List(ctx, 10)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+			return 1
+		}
+		for _, r := range rels {
+			fmt.Println(r.Tag)
+		}
+		return 0
+	}
+
+	if latest {
+		rel, err := gitwin.Latest(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+			return 1
+		}
+		fmt.Printf("fetching git-for-windows %s (%s)...\n", rel.Tag, runtime.GOARCH)
+		gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+			return 1
+		}
+		fmt.Printf("installed (unverified): %s\n", gitExe)
+		return 0
+	}
+
+	// Default: the embedded, hash-pinned manifest.
+	m, err := gitwin.ParseManifest(gitReleaseJSON)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned git for %s/%s in git_release.json; try --latest\n",
+			runtime.GOOS, runtime.GOARCH)
+		return 1
+	}
+	fmt.Printf("fetching pinned git %s (%s)...\n", m.Version, asset.Name)
+	gitExe, err := m.EnsurePinned(ctx, asset, base)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+	fmt.Printf("installed and sha256-verified: %s\n", gitExe)
+	return 0
+}
+
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
 func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
 	self, _ := os.Executable()
-	if b, err := backend.Resolve(vendoredGitPath(), self); err == nil {
+	if b, err := backend.Resolve(managedGitPath(), self); err == nil {
 		fmt.Printf("git backend: %s (%s)\n", b.Path, b.Kind)
 	}
 	fmt.Printf("audit log:   %s\n", auditDBPath())
@@ -181,6 +263,7 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "  git scrub [opts]        rewrite history: purge paths / redact text (--force to apply)")
 	fmt.Fprintln(os.Stderr, "  git audit [N]           show the last N audited invocations")
 	fmt.Fprintln(os.Stderr, "  git where               show resolved git backend and audit DB path")
+	fmt.Fprintln(os.Stderr, "  git fetch-git [--latest|--list]  download a git backend (pinned MinGit by default)")
 	fmt.Fprintln(os.Stderr, "  git install [--apply]   install the PATH shim (--apply prepends PATH)")
 	fmt.Fprintln(os.Stderr, "  git uninstall           remove the PATH shim")
 	fmt.Fprintln(os.Stderr, "  git sync|undo|log-graph|quick-commit    built-in shortcuts")
@@ -235,7 +318,7 @@ func runScrub(args []string) int {
 
 	// Resolve the real git backend so the rewrite never re-enters the gitc shim.
 	self, _ := os.Executable()
-	b, berr := backend.Resolve(vendoredGitPath(), self)
+	b, berr := backend.Resolve(managedGitPath(), self)
 	if berr != nil {
 		fmt.Fprintf(os.Stderr, "git scrub: %v\n", berr)
 		return 1
@@ -429,9 +512,9 @@ func auditDBPath() string {
 	return paths.AuditDBPath()
 }
 
-func vendoredGitPath() string {
+func managedGitPath() string {
 	if v := os.Getenv("GITC_GIT_BACKEND"); v != "" {
 		return v
 	}
-	return paths.VendoredGitPath()
+	return paths.ManagedGitPath()
 }
