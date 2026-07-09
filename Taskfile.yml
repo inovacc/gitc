@@ -23,22 +23,38 @@ tasks:
       - go run {{.MAIN}} {{.CLI_ARGS}}
 
   git:submodule:
-    desc: Add and fetch the upstream git/git source as a pinned submodule
+    desc: Add and fetch the upstream git/git source as a submodule pinned at v2.55.0
     cmds:
       - git submodule add https://github.com/git/git third_party/git
       - git -C third_party/git checkout v2.55.0
-      - git submodule update --init --recursive
+      # git's OWN nested submodules (e.g. sha1collisiondetection) — run INSIDE
+      # the submodule; running it at the repo root would revert our tag pin.
+      - git -C third_party/git submodule update --init --recursive
+      - git add third_party/git .gitmodules
     status:
       - test -d third_party/git/.git
+
+  # Extra make flags for the vendored git build. Defaults disable optional
+  # dependencies not present in a bare MinGW/scoop sysroot (curl→no HTTPS,
+  # openssl, expat, gettext, pcre2, tcl/tk) and the experimental Rust component
+  # (2.55+), and skip the legacy dashed built-ins (whose install recipe trips
+  # MSYS `sh`). On a full toolchain (Git-for-Windows SDK, Linux, macOS) override
+  # with an empty value for a fully-featured build:  task git:build GIT_MAKE_FLAGS=""
+  GIT_MAKE_FLAGS: >-
+    NO_OPENSSL=1 NO_CURL=1 NO_EXPAT=1 NO_GETTEXT=1 NO_TCLTK=1 NO_PYTHON=1
+    NO_RUST=1 USE_LIBPCRE= USE_LIBPCRE1= USE_LIBPCRE2=
+    SKIP_DASHED_BUILT_INS=YesPlease
 
   git:build:
     desc: >-
       Build the vendored git backend from third_party/git into
       internal/vendor-build/git/bin (requires a C toolchain + make; MSYS2/MinGW
       on Windows). Build-time only — the shipped gitc binary needs no C runtime.
+      NOTE: default flags produce a CORE git without HTTPS (no curl); override
+      GIT_MAKE_FLAGS="" on a full toolchain for a fully-featured build.
     dir: third_party/git
     cmds:
-      - make -j prefix="{{.ROOT_DIR}}/internal/vendor-build/git" install
+      - make -j prefix="{{.ROOT_DIR}}/internal/vendor-build/git" {{.GIT_MAKE_FLAGS}} install
     preconditions:
       - sh: command -v make
         msg: "make not found — install a C toolchain (MSYS2/MinGW on Windows, build-essential on Linux, Xcode CLT on macOS)"

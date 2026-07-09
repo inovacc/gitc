@@ -15,6 +15,23 @@ task test       # fast tests
 task test:full  # full suite
 ```
 
+## Git backend
+
+At runtime gitc execs a real git: it prefers a **vendored git built from
+source** (`third_party/git`, pinned at v2.55.0) and falls back to the first
+non-self `git` on PATH. Build the vendored backend with:
+
+```bash
+task git:submodule   # fetch git/git @ v2.55.0 (once)
+task git:build       # compile into internal/vendor-build/git/ (needs a C toolchain)
+```
+
+`git gitc where` shows which backend resolved. The default `git:build` flags
+target a bare MinGW sysroot and produce a **core git without HTTPS transport**
+(no curl) — fine for local/ssh operations and for exercising the pipeline; on a
+full toolchain (Git-for-Windows SDK, Linux, macOS) run
+`task git:build GIT_MAKE_FLAGS=""` for a fully-featured build.
+
 ## Defaults
 
 - **New repositories default to `main`.** When you run `git init` (proxied
