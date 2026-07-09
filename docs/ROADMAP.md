@@ -40,13 +40,14 @@ Raising the 0%-covered packages toward a **≥ 70%** total is tracked in
 
 The audit + scan + scrub are the building blocks; the enforcement is the goal.
 
-- [ ] **Pre-push / pre-commit secret gate** — run `scan` inline before a
-      passthrough `commit`/`push`; **block** (non-zero, refuse) when secrets are
-      detected, not just warn. Opt-in policy + severity threshold.
-- [ ] **Remote allow-listing** — block `push`/`fetch`/`clone` to remotes not on
-      an approved list (prevent exfiltration to arbitrary/unapproved hosts).
-- [ ] **Policy config** — a machine/org-level policy file (gates, allowed
-      remotes, redaction rules) the agent can't override.
+- [x] **Pre-push / pre-commit secret gate** — `enforceGates` runs `scan` inline
+      before a passthrough `commit`/`push` and **blocks** (non-zero, refuses)
+      when secrets are found; the command never reaches git. (policy.json opt-in)
+- [x] **Remote allow-listing** — blocks `push`/`fetch`/`clone`/`pull`/`remote`
+      to a URL whose host/owner is not on the approved list.
+- [x] **Policy config** — `policy.json` (`internal/policy`): a machine/org
+      enforcement policy (secret gate, remote allowlist) gitc reads read-only and
+      a git flag can't override. Absent ⇒ no enforcement (opt-in).
 - [ ] **Audit-log secret scan** (`git scan --audit`) — scan captured argv/env in
       the audit DB for secrets recorded raw.
 - [ ] **Tamper-evident audit log** — hash-chained / append-only-enforced records.
@@ -55,5 +56,5 @@ The audit + scan + scrub are the building blocks; the enforcement is the goal.
 
 - [ ] Fully-featured vendored git build (HTTPS/curl) on supported toolchains.
 - [ ] git2go/libgit2 enrichment backend (optional).
-- [ ] Scan: skip vendored/submodule dirs by default.
+- [x] Scan: skip vendored/dependency dirs by default (.git/.svn/.hg/node_modules/vendor/third_party).
 - [ ] Meta commands on the audited path.
