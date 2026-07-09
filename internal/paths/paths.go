@@ -54,6 +54,22 @@ func AuditDBPath() string {
 	return filepath.Join(DataDir(), "audit", appName+".db")
 }
 
+// ShimDir returns the directory where `gitc gitc install` places a copy of
+// itself named git/git.exe. Placing this directory earlier on PATH than the
+// real git shadows it (PATH-precedence, no file overwrite).
+func ShimDir() string {
+	return filepath.Join(DataDir(), "shim")
+}
+
+// ShimGitPath returns the shimmed git binary path inside ShimDir.
+func ShimGitPath() string {
+	name := "git"
+	if runtime.GOOS == "windows" {
+		name = "git.exe"
+	}
+	return filepath.Join(ShimDir(), name)
+}
+
 // VendoredGitPath returns the default path to the git binary built from the
 // third_party/git submodule by `task git:build`. It resolves relative to
 // gitc's own executable (the install directory ships gitc alongside its

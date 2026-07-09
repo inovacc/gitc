@@ -15,6 +15,7 @@ import (
 
 	"github.com/dyammarcano/gitc/internal/backend"
 	"github.com/dyammarcano/gitc/internal/enrich"
+	"github.com/dyammarcano/gitc/internal/installer"
 	"github.com/dyammarcano/gitc/internal/paths"
 	"github.com/dyammarcano/gitc/internal/router"
 	"github.com/dyammarcano/gitc/internal/runner"
@@ -59,7 +60,7 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 		return 1
 	}
-	r := runner.New(b, st, enrich.Default(), os.Stderr)
+	r := runner.New(b, st, enrich.NewExec(b.Path), os.Stderr)
 
 	switch dec.Kind {
 	case router.RunShortcut:
@@ -105,11 +106,41 @@ func runMeta(args []string, st *store.Store) int {
 			return 1
 		}
 		return 0
+	case "install":
+		apply := false
+		for _, a := range args[1:] {
+			if a == "--apply" {
+				apply = true
+			}
+		}
+		res, err := installer.Install(apply)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
+			return 1
+		}
+		fmt.Printf("shim git: %s\n", res.ShimGit)
+		fmt.Printf("delegates to: %s\n", res.BackendPath)
+		if res.PathApplied {
+			fmt.Println("PATH updated for the current user; restart your shell to activate.")
+		} else {
+			fmt.Println(res.Instruction)
+		}
+		return 0
+	case "uninstall":
+		msg, err := installer.Uninstall()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
+			return 1
+		}
+		fmt.Println(msg)
+		return 0
 	default:
 		fmt.Fprintln(os.Stderr, "gitc meta commands:")
-		fmt.Fprintln(os.Stderr, "  gitc gitc version        print gitc version")
-		fmt.Fprintln(os.Stderr, "  gitc gitc where          show resolved git backend and audit DB path")
-		fmt.Fprintln(os.Stderr, "  gitc gitc audit [N]      show the last N audited invocations (default 20)")
+		fmt.Fprintln(os.Stderr, "  gitc gitc version          print gitc version")
+		fmt.Fprintln(os.Stderr, "  gitc gitc where            show resolved git backend and audit DB path")
+		fmt.Fprintln(os.Stderr, "  gitc gitc audit [N]        show the last N audited invocations (default 20)")
+		fmt.Fprintln(os.Stderr, "  gitc gitc install [--apply]  install the PATH shim (--apply prepends PATH)")
+		fmt.Fprintln(os.Stderr, "  gitc gitc uninstall        remove the PATH shim")
 		if cmd == "" || cmd == "help" {
 			return 0
 		}

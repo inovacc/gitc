@@ -47,7 +47,7 @@ func New(b backend.Backend, s *store.Store, e enrich.Enricher, warn io.Writer) *
 		warn = os.Stderr
 	}
 	if e == nil {
-		e = enrich.Default()
+		e = enrich.Noop()
 	}
 	r := &Runner{backend: b, store: s, enricher: e, warn: warn}
 	if u, err := user.Current(); err == nil {
