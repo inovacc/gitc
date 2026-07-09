@@ -7,6 +7,8 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +21,10 @@ import (
 	"time"
 )
 
+// checksumsName is the goreleaser checksums manifest published alongside the
+// release binaries; Apply verifies the downloaded binary against it.
+const checksumsName = "checksums.txt"
+
 // releasesAPI is the GitHub "latest release" endpoint for the gitc repo.
 const releasesAPI = "https://api.github.com/repos/inovacc/gitc/releases/latest"
 
@@ -30,6 +36,9 @@ type Asset struct {
 	Name string
 	URL  string
 	Size int64
+	// ChecksumsURL is the release's checksums.txt asset, used by Apply to
+	// verify the downloaded binary's SHA-256 before installing it.
+	ChecksumsURL string
 }
 
 // Info is the result of a version check.
@@ -72,19 +81,28 @@ func Check(ctx context.Context, current string) (Info, error) {
 	info.Latest = rel.TagName
 
 	want := AssetName()
+
+	var checksumsURL string
+
 	for _, a := range rel.Assets {
-		if a.Name == want {
+		switch a.Name {
+		case want:
 			info.Asset = Asset{Name: a.Name, URL: a.URL, Size: a.Size}
-			break
+		case checksumsName:
+			checksumsURL = a.URL
 		}
 	}
 
+	info.Asset.ChecksumsURL = checksumsURL
 	info.HasUpdate = current != "dev" && isNewer(info.Latest, current)
 
 	return info, nil
 }
 
-// Apply downloads asset and replaces the executable at dest with it.
+// Apply downloads asset, verifies its SHA-256 (and size) against the release
+// checksums manifest, then replaces the executable at dest with it. A binary
+// that cannot be verified is never installed — a compromised or truncated asset
+// must not become the user's git.
 func Apply(ctx context.Context, asset Asset, dest string) error {
 	if asset.URL == "" {
 		return fmt.Errorf("no release asset for %s/%s", runtime.GOOS, runtime.GOARCH)
@@ -95,7 +113,54 @@ func Apply(ctx context.Context, asset Asset, dest string) error {
 		return err
 	}
 
+	if err := verify(ctx, asset, data); err != nil {
+		return err
+	}
+
 	return swap(dest, data)
+}
+
+// verify checks the downloaded bytes against the expected size and the SHA-256
+// recorded in the release checksums.txt. It refuses (never installs) when the
+// checksums manifest is missing or the digest does not match.
+func verify(ctx context.Context, asset Asset, data []byte) error {
+	if asset.Size > 0 && int64(len(data)) != asset.Size {
+		return fmt.Errorf("size mismatch: got %d bytes, release lists %d", len(data), asset.Size)
+	}
+
+	if asset.ChecksumsURL == "" {
+		return fmt.Errorf("cannot verify %s: release has no %s", asset.Name, checksumsName)
+	}
+
+	manifest, err := download(ctx, asset.ChecksumsURL)
+	if err != nil {
+		return fmt.Errorf("fetch checksums: %w", err)
+	}
+
+	want, ok := expectedSHA(manifest, asset.Name)
+	if !ok {
+		return fmt.Errorf("%s not listed in %s", asset.Name, checksumsName)
+	}
+
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); !strings.EqualFold(got, want) {
+		return fmt.Errorf("sha256 mismatch for %s: got %s, want %s", asset.Name, got, want)
+	}
+
+	return nil
+}
+
+// expectedSHA parses a goreleaser checksums.txt ("<hex>  <name>" per line) and
+// returns the digest recorded for name.
+func expectedSHA(manifest []byte, name string) (string, bool) {
+	for _, line := range strings.Split(string(manifest), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == name {
+			return fields[0], true
+		}
+	}
+
+	return "", false
 }
 
 // latestRelease fetches and decodes the latest release metadata.
