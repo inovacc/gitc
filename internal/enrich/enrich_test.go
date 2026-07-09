@@ -1,6 +1,9 @@
 package enrich
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestParseStatus(t *testing.T) {
 	// Representative `git status --porcelain=v2 --branch` output:
@@ -67,5 +70,26 @@ func TestParseStatusClean(t *testing.T) {
 func TestNewExecEmptyPathIsNoop(t *testing.T) {
 	if _, ok := NewExec("").(noop); !ok {
 		t.Fatal("NewExec(\"\") should return a no-op enricher")
+	}
+}
+
+// TestEnrichDegradesOnCancelledContext verifies enrichment never surfaces an
+// error (or blocks) when the exec cannot run — here because the context is
+// already cancelled. This also exercises the bounded-context path added for H-04.
+func TestEnrichDegradesOnCancelledContext(t *testing.T) {
+	t.Parallel()
+
+	e := &execEnricher{gitPath: "git"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	blob, err := e.Enrich(ctx, "")
+	if err != nil {
+		t.Fatalf("Enrich must never return an error, got %v", err)
+	}
+
+	if blob != nil {
+		t.Fatalf("Enrich on a cancelled context should yield nil blob, got %s", blob)
 	}
 }
