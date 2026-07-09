@@ -1,6 +1,15 @@
 # gitc
 
-> A cli application built on [mantle](https://github.com/inovacc/mantle).
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
+![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
+![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey)
+![Status](https://img.shields.io/badge/status-WIP-orange)
+
+> A **git binary replacement** — a transparent, forensic proxy in front of real
+> git. It forwards every command while keeping an append-only audit trail of
+> what ran, when, where, and with what result, and adds first-class commands:
+> secret scanning (`git scan`), history scrubbing (`git scrub`), and shortcuts
+> (`git sync`/`undo`/`log-graph`/`quick-commit`).
 
 ## Build
 
