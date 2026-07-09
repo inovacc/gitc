@@ -210,7 +210,7 @@ func runMeta(args []string, st *store.Store) int { //nolint:funlen // command di
 // (git_release.json); --latest queries the git-for-windows releases API for the
 // newest version (no pinned hash); --list shows recent releases.
 func runFetchGit(args []string) int {
-	var list, latest bool
+	var list, latest, acceptUnverified bool
 
 	for _, a := range args {
 		switch a {
@@ -218,6 +218,8 @@ func runFetchGit(args []string) int {
 			list = true
 		case "--latest":
 			latest = true
+		case "--i-accept-unverified":
+			acceptUnverified = true
 		default:
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
 			return 2
@@ -227,41 +229,64 @@ func runFetchGit(args []string) int {
 	ctx := context.Background()
 	base := paths.GitCacheDir()
 
-	if list {
-		rels, err := gitwin.List(ctx, 10)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-			return 1
-		}
+	switch {
+	case list:
+		return fetchGitList(ctx)
+	case latest:
+		return fetchGitLatest(ctx, base, acceptUnverified)
+	default:
+		return fetchGitPinned(ctx, base)
+	}
+}
 
-		for _, r := range rels {
-			fmt.Println(r.Tag)
-		}
-
-		return 0
+// fetchGitList prints the recent git-for-windows release tags.
+func fetchGitList(ctx context.Context) int {
+	rels, err := gitwin.List(ctx, 10)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
 	}
 
-	if latest {
-		rel, err := gitwin.Latest(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-			return 1
-		}
-
-		fmt.Printf("fetching git-for-windows %s (%s)...\n", rel.Tag, runtime.GOARCH)
-
-		gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-			return 1
-		}
-
-		fmt.Printf("installed (unverified): %s\n", gitExe)
-
-		return 0
+	for _, r := range rels {
+		fmt.Println(r.Tag)
 	}
 
-	// Default: the embedded, hash-pinned manifest.
+	return 0
+}
+
+// fetchGitLatest downloads the newest git-for-windows release. It is UNPINNED
+// (no sha256 to verify against), so it refuses unless the operator opted in with
+// --i-accept-unverified.
+func fetchGitLatest(ctx context.Context, base string, acceptUnverified bool) int {
+	if !acceptUnverified {
+		fmt.Fprintln(os.Stderr, "gitc fetch-git --latest downloads an UNPINNED git with no sha256 verification.")
+		fmt.Fprintln(os.Stderr, "Prefer `git fetch-git` (embedded, hash-pinned + verified).")
+		fmt.Fprintln(os.Stderr, "To override and accept an unverified binary, re-run with --i-accept-unverified.")
+
+		return 1
+	}
+
+	rel, err := gitwin.Latest(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(os.Stderr, "warning: installing UNVERIFIED git-for-windows %s (%s)\n", rel.Tag, runtime.GOARCH)
+
+	gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("installed (UNVERIFIED, --i-accept-unverified): %s\n", gitExe)
+
+	return 0
+}
+
+// fetchGitPinned downloads the embedded, hash-pinned MinGit and verifies it.
+func fetchGitPinned(ctx context.Context, base string) int {
 	m, err := gitwin.ParseManifest(gitReleaseJSON)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)

@@ -59,6 +59,7 @@ func gitcTree() cmdNode { //nolint:funlen // static command catalog
 	fetchFlags := []cmdFlag{
 		{Name: "latest", Type: "bool", Description: "query git-for-windows for the newest release (unpinned)"},
 		{Name: "list", Type: "bool", Description: "list recent git-for-windows releases"},
+		{Name: "i-accept-unverified", Type: "bool", Description: "allow --latest despite no sha256 verification"},
 	}
 	updateFlags := []cmdFlag{
 		{Name: "check", Type: "bool", Description: "report whether a newer gitc release exists"},
