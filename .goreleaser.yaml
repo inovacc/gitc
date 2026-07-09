@@ -7,7 +7,9 @@ builds:
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 archives:
-  - formats: [tar.gz]
+  # Publish raw, directly-downloadable binaries (no tar.gz), e.g.
+  # gitc_windows_amd64.exe, gitc_linux_arm64.
+  - formats: [binary]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 checksum:
   name_template: "checksums.txt"
