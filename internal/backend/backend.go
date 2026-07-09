@@ -24,15 +24,15 @@ import (
 type Kind string
 
 const (
-	// KindVendored is the git built from the third_party/git submodule.
-	KindVendored Kind = "vendored"
+	// KindManaged is a git downloaded by gitc (MinGit from git-for-windows).
+	KindManaged Kind = "managed"
 	// KindSystem is a compatible git already installed on PATH.
 	KindSystem Kind = "system"
 )
 
-// ErrNoBackend is returned when neither a vendored build nor a non-self system
+// ErrNoBackend is returned when neither a downloaded git nor a non-self system
 // git can be found.
-var ErrNoBackend = errors.New("no git backend found: build the vendored git (task git:build) or install git on PATH")
+var ErrNoBackend = errors.New("no git backend found: run `gitc gitc fetch-git` to download one, or install git on PATH")
 
 // Backend is a resolved git executable ready to exec.
 type Backend struct {
@@ -40,14 +40,14 @@ type Backend struct {
 	Path string // absolute path to the git binary
 }
 
-// Resolve picks a backend, preferring the vendored build at vendoredPath and
-// falling back to the first non-self `git` on PATH. selfPath is gitc's own
-// absolute executable path (from os.Executable); candidates resolving to it
-// are skipped to prevent recursive self-invocation.
-func Resolve(vendoredPath, selfPath string) (Backend, error) {
-	if vendoredPath != "" {
-		if abs, ok := usableBinary(vendoredPath, selfPath); ok {
-			return Backend{Kind: KindVendored, Path: abs}, nil
+// Resolve picks a backend, preferring the managed (downloaded) git at
+// managedPath and falling back to the first non-self `git` on PATH. selfPath is
+// gitc's own absolute executable path (from os.Executable); candidates
+// resolving to it are skipped to prevent recursive self-invocation.
+func Resolve(managedPath, selfPath string) (Backend, error) {
+	if managedPath != "" {
+		if abs, ok := usableBinary(managedPath, selfPath); ok {
+			return Backend{Kind: KindManaged, Path: abs}, nil
 		}
 	}
 	if p, ok := findSystemGit(selfPath); ok {

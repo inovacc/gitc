@@ -76,6 +76,7 @@ passes through to real git and is audited. Names that collide with real git
 | `git where` | Show the resolved git backend and audit DB path |
 | `git install [--apply]` | Install the PATH shim (`--apply` prepends PATH) |
 | `git uninstall` | Remove the PATH shim |
+| `git fetch-git [--latest\|--list]` | Download a git backend (pinned MinGit by default; sha256-verified) |
 | `git sync` | fetch + rebase onto upstream + push |
 | `git undo` | Soft-reset the last commit (keeps changes staged) |
 | `git log-graph` | Decorated commit graph across all refs |
@@ -101,20 +102,26 @@ task test:full  # full suite
 
 ## Git backend
 
-At runtime gitc execs a real git: it prefers a **vendored git built from
-source** (`third_party/git`, pinned at v2.55.0) and falls back to the first
-non-self `git` on PATH. Build the vendored backend with:
+At runtime gitc execs a real git, resolving the backend in this order:
+
+1. `GITC_GIT_BACKEND` — an explicit path override.
+2. A **downloaded git** in the gitc cache (see `fetch-git` below).
+3. The first non-self `git` on PATH.
+
+On Windows with no git available, download one:
 
 ```bash
-task git:submodule   # fetch git/git @ v2.55.0 (once)
-task git:build       # compile into internal/vendor-build/git/ (needs a C toolchain)
+git fetch-git            # pinned MinGit from git_release.json — sha256-verified
+git fetch-git --latest   # newest git-for-windows release (via the releases API)
+git fetch-git --list     # list recent git-for-windows releases
 ```
 
-`git gitc where` shows which backend resolved. The default `git:build` flags
-target a bare MinGW sysroot and produce a **core git without HTTPS transport**
-(no curl) — fine for local/ssh operations and for exercising the pipeline; on a
-full toolchain (Git-for-Windows SDK, Linux, macOS) run
-`task git:build GIT_MAKE_FLAGS=""` for a fully-featured build.
+`fetch-git` pulls a prebuilt **MinGit** from the
+[git-for-windows](https://github.com/git-for-windows/git/releases) releases,
+verifies it against the hash pinned in [`git_release.json`](git_release.json)
+(embedded in the binary at build time), and unpacks it into
+`%LOCALAPPDATA%\gitc\git\<version>\`. `git gitc where` shows which backend
+resolved. On Linux/macOS, use the system git (git-for-windows is Windows-only).
 
 ## Defaults
 

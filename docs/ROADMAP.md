@@ -14,7 +14,8 @@ README "Purpose" section).
   findings (CI-usable).
 - **History remediation** — `git scrub` (clean-room git-filter-repo port):
   purge paths / redact text across all history, plan-by-default.
-- **Self-built git backend** — `third_party/git` submodule + reproducible build.
+- **Self-provisioned git backend** — `git fetch-git` downloads a prebuilt,
+  sha256-pinned MinGit from git-for-windows (ADR 0004); no build toolchain.
 - **Release** — goreleaser publishes download binaries for 6 targets.
 
 ## Next — the hard gates (leak prevention)

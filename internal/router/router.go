@@ -40,6 +40,7 @@ var firstClassMeta = map[string]bool{
 	"install":   true,
 	"uninstall": true,
 	"where":     true,
+	"fetch-git": true,
 }
 
 // Decision is the result of classification.

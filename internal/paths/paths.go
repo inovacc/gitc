@@ -1,5 +1,5 @@
 // Package paths resolves the platform-specific locations gitc uses for its
-// audit database, vendored git build, and configuration.
+// audit database, downloaded git backend, and configuration.
 //
 // Windows uses %LOCALAPPDATA%\gitc; other platforms follow the XDG base
 // directory spec (~/.local/share/gitc and ~/.config/gitc), falling back to
@@ -70,18 +70,35 @@ func ShimGitPath() string {
 	return filepath.Join(ShimDir(), name)
 }
 
-// VendoredGitPath returns the default path to the git binary built from the
-// third_party/git submodule by `task git:build`. It resolves relative to
-// gitc's own executable (the install directory ships gitc alongside its
-// vendor-build tree), falling back to the data dir when the executable path is
-// unavailable. Override with GITC_GIT_BACKEND.
-func VendoredGitPath() string {
-	name := "git"
-	if runtime.GOOS == "windows" {
-		name = "git.exe"
+// GitCacheDir returns the directory where downloaded MinGit distributions are
+// unpacked, one subdirectory per release tag.
+func GitCacheDir() string {
+	return filepath.Join(DataDir(), "git")
+}
+
+// ManagedGitPath returns the path to the newest downloaded MinGit git binary
+// (fetched by `gitc gitc fetch-git`), or "" if none is cached. Override the
+// backend explicitly with GITC_GIT_BACKEND.
+func ManagedGitPath() string {
+	entries, err := os.ReadDir(GitCacheDir())
+	if err != nil {
+		return ""
 	}
-	if exe, err := os.Executable(); err == nil {
-		return filepath.Join(filepath.Dir(exe), "vendor-build", "git", "bin", name)
+	var newest string
+	var newestMod int64
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		gitExe := filepath.Join(GitCacheDir(), e.Name(), "cmd", "git.exe")
+		info, err := os.Stat(gitExe)
+		if err != nil {
+			continue
+		}
+		if m := info.ModTime().UnixNano(); m >= newestMod {
+			newestMod = m
+			newest = gitExe
+		}
 	}
-	return filepath.Join(DataDir(), "vendor-build", "git", "bin", name)
+	return newest
 }

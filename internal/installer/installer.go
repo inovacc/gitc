@@ -49,7 +49,7 @@ func Install(applyPath bool) (Result, error) {
 
 	// Guard: a real git must be resolvable once the shim shadows git, or we'd
 	// break git entirely. Resolution skips the shim binary as "self".
-	b, err := backend.Resolve(paths.VendoredGitPath(), shimGit)
+	b, err := backend.Resolve(paths.ManagedGitPath(), shimGit)
 	if err != nil {
 		return Result{}, fmt.Errorf("refusing to install: %w", err)
 	}
