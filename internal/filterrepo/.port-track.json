@@ -9,67 +9,42 @@
   "strategy": "clean_room_port",
   "scope": "subset",
   "units": [
-    {
-      "source": "git-filter-repo::decode/glob_to_regex",
-      "local": "internal/filterrepo/bytesutil.go",
-      "status": "verified",
-      "parity": "partial",
-      "notes": "Decode + anchored RE2 GlobToRegex. Unit-tested (TestGlobToRegexAnchored)."
-    },
-    {
-      "source": "git-filter-repo::PathQuoting",
-      "local": "internal/filterrepo/pathquoting.go",
-      "status": "verified",
-      "parity": "golden-pass",
-      "notes": "C-style Dequote/Enquote. Table-driven + round-trip tests pass; minimal-quoting (upstream option 2)."
-    },
-    {
-      "source": "git-filter-repo::_IDs",
-      "local": "internal/filterrepo/idmap.go",
-      "status": "verified",
-      "parity": "partial",
-      "notes": "Mark registry New/RecordRename/Translate. Global state replaced by parser-owned *IDMap."
-    },
-    {
-      "source": "git-filter-repo::stream records (Blob/Commit/Reset/FileChange/Tag/...)",
-      "local": "internal/filterrepo/records.go",
-      "status": "verified",
-      "parity": "golden-pass",
-      "notes": "Value model + Dump() re-serialization. R/C/deleteall/data<<EOF implemented but not exercised by the round-trip stream. original-oid parsed, not re-emitted (matches upstream); gpgsig stripped."
-    },
-    {
-      "source": "git-filter-repo::FastExportParser.run",
-      "local": "internal/filterrepo/parser.go",
-      "status": "verified",
-      "parity": "golden-pass",
-      "notes": "Streaming single-pass parser; exact length-prefixed 'data <n>' byte reads; callbacks + Dump. Round-trip vs real git fast-export/fast-import matches commit count + tree hashes (TestFastExportRoundTrip)."
-    },
-    { "source": "git-filter-repo::get_replace_text", "local": "internal/filterrepo/replacetext.go", "status": "todo", "parity": "untested", "notes": "Phase 3 — --replace-text file parse (literal/regex/glob, ==>REPLACEMENT, default ***REMOVED***)." },
-    { "source": "git-filter-repo::get_paths_from_file/path_changes", "local": "internal/filterrepo/pathspec.go", "status": "todo", "parity": "untested", "notes": "Phase 2 — --path/--path-glob/--path-regex/--invert-paths rule model." },
-    { "source": "git-filter-repo::_tweak_blob", "local": "internal/filterrepo/blobfilter.go", "status": "todo", "parity": "untested", "notes": "Phase 3 — literal+regex blob rewrite, binary-skip (NUL in first 8192 bytes)." },
-    { "source": "git-filter-repo::_filter_files", "local": "internal/filterrepo/pathfilter.go", "status": "todo", "parity": "untested", "notes": "Phase 2 — per-commit file-change filter/rename with invert semantics." },
-    { "source": "git-filter-repo::_tweak_commit (prune subset)", "local": "internal/filterrepo/commitfilter.go", "status": "todo", "parity": "untested", "notes": "Phase 2 — prune-empty 'auto' + parent remap. Highest parity risk (merge parent-trim)." },
-    { "source": "git-filter-repo::GitUtils subset", "local": "internal/filterrepo/gitutils.go", "status": "todo", "parity": "untested", "notes": "Phase 4 — refs/config/state git wrappers." },
-    { "source": "git-filter-repo::sanity_check", "local": "internal/filterrepo/sanity.go", "status": "todo", "parity": "untested", "notes": "Phase 4 — fresh-clone/clean-tree guard; --force bypass. Load-bearing safety." },
-    { "source": "git-filter-repo::RepoFilter pipeline", "local": "internal/filterrepo/pipeline.go", "status": "todo", "parity": "untested", "notes": "Phase 4 — spawn fast-export|transform|fast-import, wire callbacks, ref update." },
-    { "source": "git-filter-repo::cleanup", "local": "internal/filterrepo/cleanup.go", "status": "todo", "parity": "untested", "notes": "Phase 4 — reset --hard, reflog expire, gc --prune=now." }
+    { "source": "git-filter-repo::decode/glob_to_regex", "local": "internal/filterrepo/bytesutil.go", "status": "verified", "parity": "partial", "notes": "Decode + anchored RE2 GlobToRegex. Unit-tested." },
+    { "source": "git-filter-repo::PathQuoting", "local": "internal/filterrepo/pathquoting.go", "status": "verified", "parity": "golden-pass", "notes": "C-style Dequote/Enquote (minimal-quoting, upstream option 2)." },
+    { "source": "git-filter-repo::_IDs", "local": "internal/filterrepo/idmap.go", "status": "verified", "parity": "partial", "notes": "Mark registry; global state replaced by parser-owned *IDMap." },
+    { "source": "git-filter-repo::stream records", "local": "internal/filterrepo/records.go", "status": "verified", "parity": "golden-pass", "notes": "Value model + byte-exact Dump(). original-oid parsed not re-emitted; gpgsig stripped." },
+    { "source": "git-filter-repo::FastExportParser.run", "local": "internal/filterrepo/parser.go", "status": "verified", "parity": "golden-pass", "notes": "Streaming parser; exact length-prefixed data reads. Round-trip vs real git fast-export/fast-import matches commit count + tree hashes." },
+    { "source": "git-filter-repo::get_paths_from_file/path_changes", "local": "internal/filterrepo/pathspec.go", "status": "verified", "parity": "partial", "notes": "--path/--path-glob/--path-regex/--path-rename/--paths-from-file + invert. Unit-tested." },
+    { "source": "git-filter-repo::_filter_files", "local": "internal/filterrepo/pathfilter.go", "status": "verified", "parity": "partial", "notes": "Per-commit filter/rename, deleteall preserved, collision dedup, byte-sorted. Unit-tested." },
+    { "source": "git-filter-repo::get_replace_text", "local": "internal/filterrepo/replacetext.go", "status": "verified", "parity": "partial", "notes": "literal/regex/glob rules, ==>REPLACEMENT, default ***REMOVED***. Unit-tested." },
+    { "source": "git-filter-repo::_tweak_blob", "local": "internal/filterrepo/blobfilter.go", "status": "verified", "parity": "partial", "notes": "Literal+regex blob rewrite, binary-skip (NUL in first 8KiB). Regex replacement is literal (no backref expansion). Unit-tested." },
+    { "source": "git-filter-repo::_tweak_commit (prune subset)", "local": "internal/filterrepo/commitfilter.go", "status": "verified", "parity": "partial", "notes": "prune-empty auto/always/never + parent remap via CommitFilter-owned map. Structural emptiness only (no live-tree compare); genuine merges never pruned (no AncestryGraph). Unit-tested." },
+    { "source": "git-filter-repo::GitUtils subset", "local": "internal/filterrepo/gitutils.go", "status": "verified", "parity": "partial", "notes": "git subprocess wrappers: layout/is-bare, count-objects, refs, config, remotes." },
+    { "source": "git-filter-repo::sanity_check", "local": "internal/filterrepo/sanity.go", "status": "verified", "parity": "partial", "notes": "Fresh-clone (packs<=1 & loose<100) + clean-worktree guard; --force bypass. Niche checks (replace-ref loose, case-fold ref collisions, stash/unpushed/multi-worktree) not ported." },
+    { "source": "git-filter-repo::cleanup", "local": "internal/filterrepo/cleanup.go", "status": "verified", "parity": "partial", "notes": "reset --hard (non-bare), reflog expire --all, gc --prune=now." },
+    { "source": "git-filter-repo::RepoFilter pipeline", "local": "internal/filterrepo/pipeline.go", "status": "verified", "parity": "golden-pass", "notes": "Spawns git fast-export | transform | fast-import + ref update + cleanup; GitBin injected to avoid gitc-shim recursion. End-to-end tests on real git: path purge (fsck clean) + text redaction across all blobs." }
   ],
   "excluded": [
     "RepoAnalyze (analysis reports)",
     "MailmapInfo (--mailmap author rewriting)",
     "LFSObjectTracker (Git-LFS orphan tracking)",
-    "full AncestryGraph (only minimal parent-remap needed for subset)",
+    "full AncestryGraph is_ancestor (merge parent-trim / degenerate flattening) — minimal parent-remap used instead",
+    "content-identical-tree empty detection via live fast-import query (structural emptiness used instead)",
     "state_branch / marks persistence (incremental rerun)",
     "python/file-info/name-email user callbacks + sensitive-data-removal UX",
-    "FilteringOptions CLI arg parser (gitc supplies opts programmatically)",
+    "FilteringOptions CLI arg parser (gitc supplies opts programmatically / via gitc gitc clean)",
     "gettext/i18n, ProgressWriter, version banner",
+    "niche sanity checks (replace-ref loose objects, case-fold ref collisions, stash/unpushed/multi-worktree)",
     "t/test-lib.sh + test-lib-functions.sh (GPL2 — NOT ported)"
   ],
-  "parity_suite": "internal/filterrepo/filterrepo_test.go (round-trip vs real git fast-export); fixtures referenced from upstream t/t9390 and t/t9391 (CC0)",
+  "parity_suite": "internal/filterrepo/filterrepo_test.go (fast-export round-trip), transforms_test.go, commitfilter_test.go, pipeline_test.go (end-to-end path removal + text redaction on real git); fixtures referenced from upstream t/t9390 and t/t9391 (CC0)",
   "attribution": "Clean-room reimplementation of git-filter-repo (MIT). Reimplemented from format/behavior understanding; no source code copied. GPL2 test harness not ported.",
   "local_modifications": [
-    "No global mutable state: upstream module globals replaced by parser-owned *IDMap and per-record dump bookkeeping.",
+    "No global mutable state: module globals replaced by parser-owned *IDMap, per-record dump bookkeeping, and a CommitFilter-owned prune remap.",
     "original-oid parsed but not re-emitted (matches upstream Dump).",
-    "Enquote uses minimal-quoting variant (upstream option 2)."
+    "Enquote uses minimal-quoting variant (upstream option 2).",
+    "Regexes use Go RE2: backrefs/lookaround in patterns error at construction; --replace-text regex replacement is literal (no backref expansion); --path-rename regex backrefs \\1 translated to ${1}.",
+    "Prune emptiness is structural; genuine merges never pruned (no AncestryGraph).",
+    "Pipeline threads Options.GitBin so the rewrite execs the resolved real git, never the gitc shim."
   ]
 }

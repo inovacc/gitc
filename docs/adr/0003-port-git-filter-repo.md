@@ -1,25 +1,40 @@
 # 0003 — Port git-filter-repo (subset) from Python to Go
 
-- **Status:** Accepted (Phase 1 delivered; Phases 2–4 outstanding)
+- **Status:** Accepted — subset fully delivered (Phases 1–4)
 - **Date:** 2026-07-09
 - **Deciders:** dyammarcano
 - **Related:** [docs/REFERENCES.md](../REFERENCES.md), [docs/BACKLOG.md](../BACKLOG.md), [0002 — integrate gitleaks](0002-internalize-gitleaks.md), [.port-track.json](../../internal/filterrepo/.port-track.json)
 
-## Implementation status (2026-07-09)
+## Implementation status (2026-07-09) — DELIVERED
 
-**Phase 1 — fast-export/fast-import stream codec: DONE.** Clean-room ported via
-`/dep:porting` (port-mapper → port-porter → verify) into `internal/filterrepo/`
-(`bytesutil`, `pathquoting`, `idmap`, `records`, `parser`; ~1,600 LOC incl.
-tests). Verified: `go build`/`vet`/`gofmt` clean and a byte-level **round-trip
-parity test against real `git fast-export`/`fast-import`** passes (matching
-commit count + tree hashes, incl. binary/NUL blobs and quoted paths). Per-unit
-status and deviations are tracked in
+The full subset (path removal + text replacement) is clean-room ported and
+wired, produced via `/dep:porting` (port-mapper → fanned-out port-porter fleet →
+verify). Package `internal/filterrepo/` — 14 units, ~3,690 LOC incl. tests —
+reimplemented from git-filter-repo (MIT); no source copied. GPL2 test harness not
+ported.
+
+- **Phase 1 — codec** (`bytesutil`, `pathquoting`, `idmap`, `records`, `parser`):
+  byte-level round-trip parity vs real `git fast-export`/`fast-import` (commit
+  count + tree hashes; binary/NUL blobs, quoted paths).
+- **Phase 2 — path removal** (`pathspec`, `pathfilter`, `commitfilter`): path
+  select/rename/invert + prune-empty (auto/always/never) with parent remap.
+- **Phase 3 — text replacement** (`replacetext`, `blobfilter`): literal/regex/
+  glob rules, binary-skip.
+- **Phase 4 — orchestration** (`gitutils`, `sanity`, `cleanup`, `pipeline`) +
+  the `gitc gitc clean` command (plan-by-default; `--force` applies; `--dry-run`
+  previews). The rewrite execs the resolved real git, never the gitc shim.
+
+**Verified:** `go build`/`vet`/`gofmt` clean; end-to-end tests on real git purge
+a path from all history (`git fsck` clean, other history intact) and redact a
+secret across all blobs. Per-unit status + deviations in
 [`internal/filterrepo/.port-track.json`](../../internal/filterrepo/.port-track.json).
 
-**Outstanding:** Phase 2 (path removal — `pathspec`/`pathfilter`/`commitfilter`),
-Phase 3 (text replacement — `replacetext`/`blobfilter`), Phase 4 (pipeline +
-sanity + cleanup + `gitc gitc clean` command surface). The prune-empty parent
-remap (Phase 2) remains the highest parity risk.
+**Known limitations (recorded, not blocking):** prune emptiness is *structural*
+(no live-tree comparison); genuine merges are never pruned (no full
+AncestryGraph — minimal parent-remap used); regexes are RE2 (backrefs/lookaround
+in patterns error at construction; `--replace-text` regex replacement is
+literal); niche sanity checks (case-fold ref collisions, stash/unpushed/
+multi-worktree) not ported. See `.port-track.json` for the full list.
 
 ## Context
 
