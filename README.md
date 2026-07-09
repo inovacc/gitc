@@ -30,14 +30,18 @@ unredacted** by design, so secrets can land in the audit DB (protect it with
 owner-only filesystem permissions). Detect and remove secrets with the
 companion toolchain documented in [docs/REFERENCES.md](docs/REFERENCES.md):
 
-- **Detect:** [gitleaks](https://github.com/gitleaks/gitleaks)
+- **Detect:** `git scan [path]` runs the embedded
+  [gitleaks](https://github.com/gitleaks/gitleaks) ruleset over the working tree
+  and reports redacted findings (exit 1 if any are found, so it works as a CI
+  gate). Detection only — it never mutates. Use it alongside `git scrub`,
+  which removes detected secrets from history.
 - **Remove from history:**
   [git-filter-repo](https://github.com/newren/git-filter-repo)
   ([tutorial](https://andrewlock.net/rewriting-git-history-simply-with-git-filter-repo)),
   [BFG Repo-Cleaner](https://github.com/rtyley/bfg-repo-cleaner)
 
-Planned integrations (a `gitc gitc scan`, a pre-flight gate, history-cleanup
-guidance) are tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
+Further planned integrations (a pre-flight secret gate, an audit-DB scrub tool)
+are tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## License
 

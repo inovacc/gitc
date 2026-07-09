@@ -2,14 +2,14 @@
 
 How `gitc` shadows the real `git` so every invocation is proxied and audited,
 and how to undo it. Implemented by `internal/installer` and exposed as
-`gitc gitc install` / `gitc gitc uninstall`.
+`git install` / `git uninstall`.
 
 ## Model: PATH precedence, not file overwrite
 
 `gitc` never modifies files under an existing Git install. Shadowing is purely
 a matter of PATH ordering:
 
-1. `gitc gitc install` copies the running `gitc` binary into a dedicated **shim
+1. `git install` copies the running `gitc` binary into a dedicated **shim
    directory** — `%LOCALAPPDATA%\gitc\shim\` on Windows,
    `~/.local/share/gitc/shim/` elsewhere — named `git.exe` / `git`.
 2. That shim directory is placed **earlier** on the user's `PATH` than any real
@@ -29,9 +29,9 @@ installing a shim that would shadow git with nothing behind it.
 
 ## Applying the PATH change
 
-- **`gitc gitc install`** (no flag) sets up the shim dir and prints the exact
+- **`git install`** (no flag) sets up the shim dir and prints the exact
   manual PATH step for your platform. Nothing on PATH is changed.
-- **`gitc gitc install --apply`** additionally prepends the shim dir to the
+- **`git install --apply`** additionally prepends the shim dir to the
   **user** PATH. On Windows this uses the user Environment API via PowerShell
   (`[Environment]::SetEnvironmentVariable('Path', …, 'User')`), which does not
   suffer `setx`'s 1024-character truncation. It is idempotent — the shim dir is
@@ -43,7 +43,7 @@ returns the manual `export PATH=…` instruction instead.
 
 ## Uninstall
 
-`gitc gitc uninstall` removes the shim directory. Removing the shim dir entry
+`git uninstall` removes the shim directory. Removing the shim dir entry
 from PATH is left to the user (the command prints a reminder); nothing else is
 touched.
 

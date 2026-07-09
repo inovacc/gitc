@@ -21,7 +21,7 @@ ported.
 - **Phase 3 — text replacement** (`replacetext`, `blobfilter`): literal/regex/
   glob rules, binary-skip.
 - **Phase 4 — orchestration** (`gitutils`, `sanity`, `cleanup`, `pipeline`) +
-  the `gitc gitc clean` command (plan-by-default; `--force` applies; `--dry-run`
+  the `git scrub` command (plan-by-default; `--force` applies; `--dry-run`
   previews). The rewrite execs the resolved real git, never the gitc shim.
 
 **Verified:** `go build`/`vet`/`gofmt` clean; end-to-end tests on real git purge
@@ -43,8 +43,8 @@ Go dependency internalization: git-filter-repo is a single ~5,000-line **Python*
 module (`git_filter_repo.py`), not a Go module. Consuming its capability in gitc
 means a **clean-room port** of the behavior we need, not a clone-and-vendor.
 
-This is the *removal* half of gitc's secret-mitigation story (the `gitc gitc
-clean` guidance item in the backlog): when a secret was committed to a repo gitc
+This is the *removal* half of gitc's secret-mitigation story (the `git scrub`
+guidance item in the backlog): when a secret was committed to a repo gitc
 audited, rewrite history to purge it.
 
 ## 5.1 Summary
@@ -107,8 +107,8 @@ internal/filterrepo/
 
 Exposed via a guidance-first meta command (destructive — never automatic):
 
-- `gitc gitc clean --path <path>` — remove a path from all history.
-- `gitc gitc clean --replace-text <file>` — redact matched strings.
+- `git scrub --path <path>` — remove a path from all history.
+- `git scrub --replace-text <file>` — redact matched strings.
 - Default to **print the plan / require an explicit `--force`**, consistent with
   gitc's "guide the operator, don't silently rewrite history" stance.
 
@@ -142,7 +142,7 @@ mechanism. Do **not** vendor Python; do **not** attempt a full 1:1 port.
    payloads; verify secrets are redacted across history.
 4. **Phase 4 — safety + cleanup:** clean-tree guard, `--force`, reflog expiry +
    `git gc`; refuse unsafe runs.
-5. **Phase 5 — command surface:** `gitc gitc clean ...`, audited like any other
+5. **Phase 5 — command surface:** `git scrub ...`, audited like any other
    invocation; docs in REFERENCES.md.
 
 Each phase is independently testable and shippable.

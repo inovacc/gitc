@@ -1,10 +1,13 @@
-// Command gitc is a transparent forensic proxy in front of the real git binary.
+// Command gitc is a git binary: it replaces git on PATH and provides all
+// git-related functionality under one tool.
 //
-// It forwards every invocation (args, stdin/stdout/stderr, exit code) to a git
-// backend while recording an append-only audit trail of what ran, when, where,
-// by whom, and with what result. A small set of built-in shortcuts and a
-// `gitc gitc ...` meta namespace round out the tool; both are audited like any
-// passthrough command.
+// It forwards ordinary git invocations (args, stdin/stdout/stderr, exit code)
+// to a git backend while recording an append-only forensic audit trail, and it
+// adds its own first-class commands — `git scan` (secret detection),
+// `git scrub` (history rewrite), `git audit`, `git where`, `git install`, and
+// shortcuts (`git sync`/`undo`/`log-graph`/`quick-commit`). Native names that
+// would collide with a real git subcommand are reached via the `git gitc <cmd>`
+// namespace instead; everything unrecognized passes through to real git.
 package main
 
 import (
@@ -12,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/dyammarcano/gitc/internal/backend"
 	"github.com/dyammarcano/gitc/internal/enrich"
@@ -21,6 +25,7 @@ import (
 	"github.com/dyammarcano/gitc/internal/policy"
 	"github.com/dyammarcano/gitc/internal/router"
 	"github.com/dyammarcano/gitc/internal/runner"
+	"github.com/dyammarcano/gitc/internal/scan"
 	"github.com/dyammarcano/gitc/internal/shortcut"
 	"github.com/dyammarcano/gitc/internal/store"
 )
@@ -78,13 +83,19 @@ func run(args []string) int {
 	}
 }
 
-// runMeta handles `gitc gitc <cmd>` tool-specific subcommands.
+// runMeta handles gitc's own commands. They are reachable first-class as
+// `git <cmd>` (for names that don't collide with real git) and always via the
+// explicit `git gitc <cmd>` namespace. Bare `git gitc` prints gitc self-info.
 func runMeta(args []string, st *store.Store) int {
 	cmd := ""
 	if len(args) > 0 {
 		cmd = args[0]
 	}
 	switch cmd {
+	case "", "help":
+		printSelfInfo()
+		printMetaHelp()
+		return 0
 	case "version":
 		fmt.Printf("gitc %s\n", version)
 		return 0
@@ -142,25 +153,42 @@ func runMeta(args []string, st *store.Store) int {
 		}
 		fmt.Println(msg)
 		return 0
-	case "clean":
-		return runClean(args[1:])
+	case "scrub":
+		return runScrub(args[1:])
+	case "scan":
+		return runScan(args[1:])
 	default:
-		fmt.Fprintln(os.Stderr, "gitc meta commands:")
-		fmt.Fprintln(os.Stderr, "  gitc gitc version          print gitc version")
-		fmt.Fprintln(os.Stderr, "  gitc gitc where            show resolved git backend and audit DB path")
-		fmt.Fprintln(os.Stderr, "  gitc gitc audit [N]        show the last N audited invocations (default 20)")
-		fmt.Fprintln(os.Stderr, "  gitc gitc install [--apply]  install the PATH shim (--apply prepends PATH)")
-		fmt.Fprintln(os.Stderr, "  gitc gitc uninstall        remove the PATH shim")
-		fmt.Fprintln(os.Stderr, "  gitc gitc clean [opts]     rewrite history (purge paths / redact text); --force to apply")
-		if cmd == "" || cmd == "help" {
-			return 0
-		}
+		fmt.Fprintf(os.Stderr, "gitc: unknown command %q\n", cmd)
+		printMetaHelp()
 		return 2
 	}
 }
 
-// cleanFlags holds the parsed `gitc gitc clean` options.
-type cleanFlags struct {
+// printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
+func printSelfInfo() {
+	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
+	self, _ := os.Executable()
+	if b, err := backend.Resolve(vendoredGitPath(), self); err == nil {
+		fmt.Printf("git backend: %s (%s)\n", b.Path, b.Kind)
+	}
+	fmt.Printf("audit log:   %s\n", auditDBPath())
+}
+
+// printMetaHelp lists gitc's native commands.
+func printMetaHelp() {
+	fmt.Fprintln(os.Stderr, "\ngitc commands (each also as `git gitc <cmd>`):")
+	fmt.Fprintln(os.Stderr, "  git scan [path]         detect secrets (exit 1 if any found)")
+	fmt.Fprintln(os.Stderr, "  git scrub [opts]        rewrite history: purge paths / redact text (--force to apply)")
+	fmt.Fprintln(os.Stderr, "  git audit [N]           show the last N audited invocations")
+	fmt.Fprintln(os.Stderr, "  git where               show resolved git backend and audit DB path")
+	fmt.Fprintln(os.Stderr, "  git install [--apply]   install the PATH shim (--apply prepends PATH)")
+	fmt.Fprintln(os.Stderr, "  git uninstall           remove the PATH shim")
+	fmt.Fprintln(os.Stderr, "  git sync|undo|log-graph|quick-commit    built-in shortcuts")
+	fmt.Fprintln(os.Stderr, "  git gitc version        print gitc's own version")
+}
+
+// scrubFlags holds the parsed `git scrub` options.
+type scrubFlags struct {
 	paths       []string
 	invertPaths bool
 	replaceText string
@@ -169,27 +197,28 @@ type cleanFlags struct {
 	prune       string
 }
 
-// runClean implements `gitc gitc clean`: a guarded, audited front end to the
-// filterrepo history rewriter. Without --force it prints the plan and refuses to
+// runScrub implements `git scrub` (a.k.a. `git gitc scrub`): a guarded front end
+// to the filterrepo history rewriter. It is named scrub, not clean, so it never
+// shadows real `git clean`. Without --force it prints the plan and refuses to
 // mutate; --dry-run exercises the export+transform pipeline but discards the
 // import so the repository is left untouched.
-func runClean(args []string) int {
-	fl, err := parseCleanFlags(args)
+func runScrub(args []string) int {
+	fl, err := parseScrubFlags(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc clean: %v\n", err)
+		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
 		return 2
 	}
 
 	prune, err := parsePruneMode(fl.prune)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc clean: %v\n", err)
+		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
 		return 2
 	}
 
 	spec := filterrepo.NewPathSpec()
 	for _, p := range fl.paths {
 		if aerr := spec.AddMatch([]byte(p)); aerr != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc clean: %v\n", aerr)
+			fmt.Fprintf(os.Stderr, "git scrub: %v\n", aerr)
 			return 2
 		}
 	}
@@ -199,7 +228,7 @@ func runClean(args []string) int {
 	if fl.replaceText != "" {
 		rules, err = filterrepo.ParseReplaceText(fl.replaceText)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc clean: reading --replace-text: %v\n", err)
+			fmt.Fprintf(os.Stderr, "git scrub: reading --replace-text: %v\n", err)
 			return 1
 		}
 	}
@@ -208,11 +237,11 @@ func runClean(args []string) int {
 	self, _ := os.Executable()
 	b, berr := backend.Resolve(vendoredGitPath(), self)
 	if berr != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc clean: %v\n", berr)
+		fmt.Fprintf(os.Stderr, "git scrub: %v\n", berr)
 		return 1
 	}
 
-	printCleanPlan(fl)
+	printScrubPlan(fl)
 
 	if !fl.force && !fl.dryRun {
 		fmt.Fprintln(os.Stderr, "\nThis rewrites history irreversibly. Nothing has been changed.")
@@ -233,7 +262,7 @@ func runClean(args []string) int {
 	}
 
 	if err := filterrepo.Run(context.Background(), opts); err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc clean: %v\n", err)
+		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
 		return 1
 	}
 
@@ -245,10 +274,10 @@ func runClean(args []string) int {
 	return 0
 }
 
-// parseCleanFlags parses the clean subcommand's flags without using the flag
+// parseScrubFlags parses the clean subcommand's flags without using the flag
 // package so --path can repeat, matching the manual style used elsewhere.
-func parseCleanFlags(args []string) (cleanFlags, error) {
-	fl := cleanFlags{prune: "auto"}
+func parseScrubFlags(args []string) (scrubFlags, error) {
+	fl := scrubFlags{prune: "auto"}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		next := func() (string, error) {
@@ -304,10 +333,10 @@ func parsePruneMode(s string) (filterrepo.PruneMode, error) {
 	}
 }
 
-// printCleanPlan describes what the rewrite would do, to stderr, so the operator
+// printScrubPlan describes what the rewrite would do, to stderr, so the operator
 // sees the plan whether or not it is applied.
-func printCleanPlan(fl cleanFlags) {
-	fmt.Fprintln(os.Stderr, "gitc clean plan:")
+func printScrubPlan(fl scrubFlags) {
+	fmt.Fprintln(os.Stderr, "gitc scrub plan:")
 	if len(fl.paths) > 0 {
 		verb := "keep only"
 		if fl.invertPaths {
@@ -329,6 +358,68 @@ func printCleanPlan(fl cleanFlags) {
 		mode = "preview only (pass --force to apply)"
 	}
 	fmt.Fprintf(os.Stderr, "  mode: %s\n", mode)
+}
+
+// runScan implements `git scan [path]`: a detection-only secret scan of
+// the working tree using the gitleaks embedded ruleset. It never mutates the
+// repository. It prints one redacted line per finding and a summary, exiting 1
+// if any secrets are found (so it is usable as a CI gate) and 0 when clean.
+func runScan(args []string) int {
+	path := "."
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--audit":
+			// Scanning captured audit-log argv/env is a planned follow-up
+			// (see docs/BACKLOG.md). Working-tree scanning is the priority.
+			fmt.Fprintln(os.Stderr, "git scan: --audit is not implemented yet; scanning the working tree")
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(os.Stderr, "git scan: unknown flag %q\n", a)
+			return 2
+		default:
+			path = a
+		}
+	}
+
+	sc, err := scan.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git scan: %v\n", err)
+		return 1
+	}
+
+	findings, err := sc.ScanDir(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git scan: %v\n", err)
+		return 1
+	}
+
+	for _, f := range findings {
+		loc := f.File
+		if f.StartLine > 0 {
+			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
+		}
+		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, maskSecret(f.Secret))
+	}
+
+	if len(findings) == 0 {
+		fmt.Printf("scan clean: no secrets found in %s\n", path)
+		return 0
+	}
+	fmt.Printf("scan: %d potential secret(s) found in %s\n", len(findings), path)
+	return 1
+}
+
+// maskSecret returns a redacted snippet of a detected secret so the operator
+// can recognize it without the terminal (or CI logs) capturing the plaintext.
+func maskSecret(secret string) string {
+	if secret == "" {
+		return "<redacted>"
+	}
+	const keep = 4
+	if len(secret) <= keep {
+		return strings.Repeat("*", len(secret))
+	}
+	return secret[:keep] + strings.Repeat("*", 6)
 }
 
 func auditDBPath() string {

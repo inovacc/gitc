@@ -1,15 +1,35 @@
 # 0002 — Integrate gitleaks secret detection
 
-- **Status:** Proposed
+- **Status:** Accepted (external dependency; `git scan` added)
 - **Date:** 2026-07-09
 - **Deciders:** dyammarcano
 - **Related:** [docs/REFERENCES.md](../REFERENCES.md), [docs/BACKLOG.md](../BACKLOG.md), [0003 — port git-filter-repo](0003-port-git-filter-repo.md)
+
+## Implementation status
+
+Implemented as an **external dependency** (not vendored), per the recommended
+strategy above:
+
+- Module `github.com/zricethezav/gitleaks/v8 v8.30.1` added to `go.mod`.
+- `internal/scan` wraps `detect.NewDetectorDefaultConfig()` (the embedded
+  default ruleset), exposing `New`, `ScanString`, `ScanBytes`, and `ScanDir`
+  (walks the tree, skips `.git`, skips binary/oversized files) → `[]report.Finding`.
+- `git scan [path]` (in `main.go` `runMeta`) scans the working tree,
+  prints one redacted line per finding (`rule  file:line  masked-snippet`) plus
+  a summary, and exits 1 when secrets are found / 0 when clean. Detection-only;
+  never mutates. The `--audit` flag is a stub (follow-up).
+- **cgo-free confirmed:** `CGO_ENABLED=0 go build ./...` succeeds; gitleaks'
+  regex engine (`wasilibs/go-re2`) uses its pure-Go wazero WASM backend — no
+  `re2_cgo` build tag. Adding gitleaks pulled an old pinned
+  `charmbracelet/x/cellbuf` (via `lipgloss` v1) that conflicted with the newer
+  `x/ansi` already required by the goreleaser tooling dep; resolved by bumping
+  `x/cellbuf` to `v0.0.15`.
 
 ## Context
 
 gitc logs git argv and a git-relevant environment subset **raw and unredacted**
 (see the design spec), so secrets can land in a repo's history and in the audit
-DB. The backlog proposes a `gitc gitc scan` command for the *detection* half of
+DB. The backlog proposes a `git scan` command for the *detection* half of
 the mitigation story. gitleaks is the de-facto tool for that and is written in
 Go, so it is a candidate for `/dep:internalize`.
 
@@ -36,7 +56,7 @@ Go, so it is a candidate for `/dep:internalize`.
 
 ## 5.2 What we actually need
 
-For `gitc gitc scan`, the required surface is the **detection engine + rule
+For `git scan`, the required surface is the **detection engine + rule
 config + findings**:
 
 - `config` — load the default ruleset (`config.DefaultConfig` / embedded
@@ -99,7 +119,7 @@ github.com/zricethezav/gitleaks/v8/regexp  → github.com/dyammarcano/gitc/pkg/g
 1. `go get github.com/zricethezav/gitleaks/v8@latest`.
 2. Add `internal/scan`: wrap `config.DefaultConfig` + `detect.NewDetector`,
    exposing `ScanString(s) []Finding` and `ScanDir(path) []Finding`.
-3. Add meta command `gitc gitc scan [path]` (detection-only; never mutates)
+3. Add meta command `git scan [path]` (detection-only; never mutates)
    that runs the detector over the working tree and/or recent audit-log argv/env,
    printing findings. Wire it in `runMeta`.
 4. Confirm the pure-Go `go-re2` build (no CGO); verify `go build`/`vet`/`test`.

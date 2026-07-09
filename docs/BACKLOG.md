@@ -7,14 +7,17 @@ land in a repo's history and in the audit DB. The tools catalogued in
 [REFERENCES.md](REFERENCES.md) form the detect → remove toolchain. Candidate
 integrations:
 
-- **`gitc gitc scan` — gitleaks integration.** Wrap gitleaks (Go, so usable as
-  a library or subprocess) to scan the current repo and/or the audit DB's
-  captured argv/env for secrets. Report matches; optionally flag audit rows that
-  contain detected secrets. Detection only — never auto-mutates.
+- **`git scan` — gitleaks integration — DONE (working-tree scan).** Wraps
+  gitleaks as an external Go dependency (`github.com/zricethezav/gitleaks/v8`,
+  embedded default ruleset) via `internal/scan`; `git scan [path]` scans
+  the working tree, prints redacted findings, and exits 1 if any are found (CI
+  gate). Detection only — never mutates. Follow-up: the `--audit` flag to scan
+  the audit DB's captured argv/env is still a stub (working-tree scan shipped
+  first).
 - **Pre-flight secret gate (opt-in).** Optionally run a gitleaks check before
   passing through commit/push, warning (not blocking by default) when a secret
   is about to be committed or would be recorded raw in the audit log.
-- **History remediation — DONE (`gitc gitc clean`).** Native, single-binary
+- **History remediation — DONE (`git scrub`).** Native, single-binary
   history rewriting via the clean-room `internal/filterrepo` port of
   git-filter-repo (ADR 0003): purge paths (`--path`/`--invert-paths`) and redact
   text (`--replace-text`) across all history. Plan-by-default; `--force` applies,
