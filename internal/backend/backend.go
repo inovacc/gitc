@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -123,6 +124,42 @@ func sameFile(a, b string) bool {
 		}
 	}
 	return false
+}
+
+// SupportsInitialBranch reports whether the backend git is new enough to accept
+// `init --initial-branch` (git >= 2.28). On any error it returns false so
+// callers never inject a flag an old git would reject.
+func (b Backend) SupportsInitialBranch(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, b.Path, "--version").Output()
+	if err != nil {
+		return false
+	}
+	major, minor, ok := parseGitVersion(string(out))
+	if !ok {
+		return false
+	}
+	return major > 2 || (major == 2 && minor >= 28)
+}
+
+// parseGitVersion extracts the major/minor from `git version X.Y.Z` output.
+func parseGitVersion(s string) (major, minor int, ok bool) {
+	fields := strings.Fields(strings.TrimSpace(s))
+	if len(fields) < 3 {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(fields[2], ".", 3)
+	if len(parts) < 2 {
+		return 0, 0, false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	minor, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	return major, minor, true
 }
 
 // Result is the outcome of a passthrough exec.

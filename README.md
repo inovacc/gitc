@@ -15,6 +15,14 @@ task test       # fast tests
 task test:full  # full suite
 ```
 
+## Defaults
+
+- **New repositories default to `main`.** When you run `git init` (proxied
+  through gitc) without choosing a branch, gitc injects `--initial-branch=main`
+  so new repos start on `main` instead of `master`. An explicit `-b`/
+  `--initial-branch` is always respected, and the flag is only added when the
+  backend git supports it (>= 2.28).
+
 ## Secret handling & remediation
 
 gitc records git argv and a git-relevant environment subset **raw and

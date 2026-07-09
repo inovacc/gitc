@@ -17,6 +17,7 @@ import (
 	"github.com/dyammarcano/gitc/internal/enrich"
 	"github.com/dyammarcano/gitc/internal/installer"
 	"github.com/dyammarcano/gitc/internal/paths"
+	"github.com/dyammarcano/gitc/internal/policy"
 	"github.com/dyammarcano/gitc/internal/router"
 	"github.com/dyammarcano/gitc/internal/runner"
 	"github.com/dyammarcano/gitc/internal/shortcut"
@@ -66,7 +67,13 @@ func run(args []string) int {
 	case router.RunShortcut:
 		return r.Shortcut(ctx, dec.Shortcut, dec.Args)
 	default:
-		return r.Passthrough(ctx, dec.Args)
+		args := dec.Args
+		// New repos default to `main`, not `master`, unless the user chose a
+		// branch. Only inject when the backend git supports the flag.
+		if idx, ok := policy.InitNeedsBranch(args); ok && b.SupportsInitialBranch(ctx) {
+			args = policy.InjectInitialBranch(args, idx, "main")
+		}
+		return r.Passthrough(ctx, args)
 	}
 }
 
