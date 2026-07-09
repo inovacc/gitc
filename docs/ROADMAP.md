@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:001 -->
+<!-- rev:002 -->
 
 gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
 agents** — stop agents leaking secrets/sensitive data through git (see the
@@ -7,57 +7,80 @@ README "Purpose" section).
 
 ## Shipped
 
-- **Transparent git shadow** — installs as `git` (PATH-precedence shim); the
-  agent's every git call flows through gitc and can't be routed around.
-- **Forensic audit log** — append-only SQLite record of every invocation
-  (args, env subset, cwd, backend, exit, duration, repo-state enrichment).
+### Core proxy & forensics
+- **Transparent git shadow** — installs as `git` (PATH-precedence shim); every
+  git call flows through gitc and can't be routed around.
+- **Forensic audit log** — append-only SQLite record of every real git
+  invocation (help/usage/version are run but not logged). `git audit` is
+  compact by default, `--wide` for the full record.
+- **Tamper-evident audit chain** — each row folds in the previous row's sha256
+  (`prev_hash`/`row_hash`); `git audit --verify` detects a deleted or edited row.
+- **Credential redaction** — URL userinfo and Authorization tokens are masked in
+  the stored argv (the backend still runs the real args).
+
+### Detection & remediation
 - **Secret detection** — `git scan` (embedded gitleaks ruleset); exit 1 on
-  findings (CI-usable).
+  findings (CI-usable); skips vendored/dependency dirs; `--strict`; `--audit`
+  scans the captured argv/env in the audit DB.
 - **History remediation** — `git scrub` (clean-room git-filter-repo port):
   purge paths / redact text across all history, plan-by-default.
-- **Self-provisioned git backend** — `git fetch-git` downloads a prebuilt,
-  sha256-pinned MinGit from git-for-windows (ADR 0004); no build toolchain.
-- **Release** — goreleaser publishes download binaries for 6 targets.
+
+### Enforcement gates — the mission
+- **Policy config** — `policy.json` (`internal/policy`): a machine/org policy
+  gitc reads read-only and a git flag can't override. Absent ⇒ no enforcement.
+- **Pre-commit/push secret gate** — blocks (refuses, non-zero) a `commit`/`push`
+  when a working-tree scan finds anything; the command never reaches git.
+- **Remote allow-listing** — blocks `push`/`fetch`/`clone`/`pull`/`remote` to a
+  URL whose host/owner is not on the approved list.
+
+### Managed git backend & updates (ADR 0004 / 0005)
+- **Self-provisioned MinGit** — `git fetch-git`; the pinned, sha256-verified
+  manifest lives in Go source (`gitwin.Pinned`), not a swappable data file.
+- **settings.json resolution** — UUIDv7 side-by-side installs under `app/<uuid>/`;
+  activation is an atomic pointer flip (`previous ← active`); old installs GC'd.
+- **Lazy background updater** — throttled, single-flight, detached check on
+  ordinary git usage; only the verified pinned channel is auto-applied.
+- **Pinned upstream URLs** — the two repo URLs are sha256-pinned constants
+  (`internal/origin`), verified fail-closed before any network call.
+
+### Self-management & DX
+- **`git update`** — self-update from GitHub releases, verified (sha256 + size)
+  before the in-place swap; background check surfaces a notice.
+- **`git doctor`** (health check), **`git cmdtree`**, **`git install`/`uninstall`**.
+
+### Hardening & release
+- Hardening runbook **H-01…H-11, H-14** — supply-chain integrity, bounded
+  timeouts, network retry, graceful Ctrl-C, and a CI gate (`vet` + `-race` +
+  coverage + pinned golangci-lint v2.12.2).
+- Go 1.26.5; strict lint (0 findings). goreleaser release for 6 targets.
 
 ## Test coverage
 
-Total **43.9%** (`go test -cover ./...`).
+Total **42.9%** (`go test -cover ./...`).
 
 | Package | % | | Package | % |
 |---------|---|---|---------|---|
-| router | 100.0 | | scan | 9.8 |
-| policy | 96.0 | | installer | 0.0 |
-| store | 74.4 | | paths | 0.0 |
-| enrich | 62.2 | | runner | 0.0 |
-| filterrepo | 62.0 | | shortcut | 0.0 |
-| backend | 48.1 | | main | 0.0 |
-| gitwin | 15.7 | | | |
+| gitargs | 100.0 | | store | 62.3 |
+| redact | 100.0 | | filterrepo | 61.9 |
+| router | 100.0 | | backend | 48.1 |
+| uuidv7 | 95.8 | | selfupdate | 45.4 |
+| origin | 93.3 | | paths | 38.1 |
+| policy | 91.5 | | gitwin | 37.4 |
+| enrich | 76.6 | | main | 3.1 |
+| scan | 70.8 | | installer/runner/shortcut | 0.0 |
+| settings | 68.8 | | | |
 
-Raising the 0%-covered packages toward a **≥ 70%** total is tracked in
-[IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) (TST-1..6).
+## Next
 
-## Next — the hard gates (leak prevention)
-
-The audit + scan + scrub are the building blocks; the enforcement is the goal.
-
-- [x] **Pre-push / pre-commit secret gate** — `enforceGates` runs `scan` inline
-      before a passthrough `commit`/`push` and **blocks** (non-zero, refuses)
-      when secrets are found; the command never reaches git. (policy.json opt-in)
-- [x] **Remote allow-listing** — blocks `push`/`fetch`/`clone`/`pull`/`remote`
-      to a URL whose host/owner is not on the approved list.
-- [x] **Policy config** — `policy.json` (`internal/policy`): a machine/org
-      enforcement policy (secret gate, remote allowlist) gitc reads read-only and
-      a git flag can't override. Absent ⇒ no enforcement (opt-in).
-- [x] **Audit-log secret scan** (`git scan --audit`) — scans the captured
-      argv/env of every audit row for secrets that slipped past write-time
-      redaction; exit 1 on findings.
-- [x] **Tamper-evident audit log** — each row folds in the previous row's
-      sha256 (`prev_hash`/`row_hash`); `git audit --verify` detects a deleted or
-      edited row and reports the first break.
+- [ ] Raise coverage toward **≥ 70%** — `runner`, `installer`, `shortcut`, and
+      `main` are still thin.
+- [ ] Secret-gate **severity threshold** (warn vs block per finding severity).
+- [ ] Remote allowlist for **named remotes** (resolve `git push origin`), not
+      only URL arguments.
+- [ ] Context threading (H-12/H-13) and `gitwin` download retry (deferred
+      hardening — see [BACKLOG.md](BACKLOG.md)).
 
 ## Later
 
 - [ ] Fully-featured vendored git build (HTTPS/curl) on supported toolchains.
 - [ ] git2go/libgit2 enrichment backend (optional).
-- [x] Scan: skip vendored/dependency dirs by default (.git/.svn/.hg/node_modules/vendor/third_party).
-- [ ] Meta commands on the audited path.
