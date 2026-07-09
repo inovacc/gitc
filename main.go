@@ -599,6 +599,7 @@ func printScrubPlan(fl scrubFlags) {
 // if any secrets are found (so it is usable as a CI gate) and 0 when clean.
 func runScan(args []string) int {
 	path := "."
+	strict := false
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -607,6 +608,8 @@ func runScan(args []string) int {
 			// Scanning captured audit-log argv/env is a planned follow-up
 			// (see docs/BACKLOG.md). Working-tree scanning is the priority.
 			fmt.Fprintln(os.Stderr, "git scan: --audit is not implemented yet; scanning the working tree")
+		case a == "--strict":
+			strict = true
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(os.Stderr, "git scan: unknown flag %q\n", a)
 			return 2
@@ -621,13 +624,13 @@ func runScan(args []string) int {
 		return 1
 	}
 
-	findings, err := sc.ScanDir(path)
+	res, err := sc.ScanDir(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git scan: %v\n", err)
 		return 1
 	}
 
-	for _, f := range findings {
+	for _, f := range res.Findings {
 		loc := f.File
 		if f.StartLine > 0 {
 			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
@@ -636,14 +639,41 @@ func runScan(args []string) int {
 		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, maskSecret(f.Secret))
 	}
 
-	if len(findings) == 0 {
-		fmt.Printf("scan clean: no secrets found in %s\n", path)
+	reportSkipped(res.Skipped)
+
+	switch {
+	case len(res.Findings) > 0:
+		fmt.Printf("scan: %d potential secret(s) found in %s\n", len(res.Findings), path)
+		return 1
+	case strict && len(res.Skipped) > 0:
+		fmt.Printf("scan: no secrets found, but %d file(s) could not be read (--strict) in %s\n", len(res.Skipped), path)
+		return 1
+	default:
+		fmt.Printf("scan clean: no secrets found in %s (%d file(s) skipped)\n", path, len(res.Skipped))
 		return 0
 	}
+}
 
-	fmt.Printf("scan: %d potential secret(s) found in %s\n", len(findings), path)
+// reportSkipped warns (to stderr) about files the scan could not read, so a
+// clean result is never mistaken for a complete one. The list is capped to keep
+// output readable.
+func reportSkipped(skipped []scan.Skip) {
+	if len(skipped) == 0 {
+		return
+	}
 
-	return 1
+	const maxList = 10
+
+	fmt.Fprintf(os.Stderr, "git scan: %d file(s) could not be read:\n", len(skipped))
+
+	for i, sk := range skipped {
+		if i == maxList {
+			fmt.Fprintf(os.Stderr, "  ... and %d more\n", len(skipped)-maxList)
+			break
+		}
+
+		fmt.Fprintf(os.Stderr, "  %s: %s\n", sk.Path, sk.Reason)
+	}
 }
 
 // maskSecret returns a redacted snippet of a detected secret so the operator

@@ -47,6 +47,7 @@ type cmdNode struct {
 func gitcTree() cmdNode { //nolint:funlen // static command catalog
 	scanFlags := []cmdFlag{
 		{Name: "audit", Type: "bool", Description: "scan captured audit-log argv/env (planned)"},
+		{Name: "strict", Type: "bool", Description: "exit non-zero if any file could not be read"},
 	}
 	scrubFlags := []cmdFlag{
 		{Name: "path", Type: "string", Description: "path glob to purge (repeatable)"},
