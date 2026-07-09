@@ -18,7 +18,13 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// enrichTimeout bounds the out-of-band `git status` call. Enrichment is
+// best-effort, so a stalled or slow status must never delay the primary git
+// command's completion or its audit write.
+const enrichTimeout = 5 * time.Second
 
 // Enricher produces an optional structured JSON blob describing repo state at
 // cwd. A nil result (with nil error) means "no enrichment available".
@@ -58,6 +64,9 @@ type Status struct {
 }
 
 func (e *execEnricher) Enrich(ctx context.Context, cwd string) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
+	defer cancel()
+
 	args := []string{"status", "--porcelain=v2", "--branch"}
 
 	cmd := exec.CommandContext(ctx, e.gitPath, args...)

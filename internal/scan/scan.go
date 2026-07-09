@@ -27,6 +27,22 @@ type Scanner struct {
 	detector *detect.Detector
 }
 
+// Skip records a path that could not be scanned because of a permission or I/O
+// error (not an intentional policy skip like empty/oversized/binary), so a
+// "clean" result is never silently incomplete.
+type Skip struct {
+	Path   string
+	Reason string
+}
+
+// Result is the outcome of ScanDir: the findings plus any paths that could not
+// be read. A caller that treats a clean scan as a gate should also inspect
+// Skipped (see the --strict handling in `git scan`).
+type Result struct {
+	Findings []report.Finding
+	Skipped  []Skip
+}
+
 // New builds a Scanner from the gitleaks embedded default configuration.
 func New() (*Scanner, error) {
 	d, err := detect.NewDetectorDefaultConfig()
@@ -62,13 +78,25 @@ func (s *Scanner) ScanBytes(filePath string, content []byte) []report.Finding {
 
 // ScanDir walks root (skipping the .git directory) and scans each regular,
 // reasonably sized, non-binary file, aggregating findings with their paths.
-// It is detection-only and never modifies the tree.
-func (s *Scanner) ScanDir(root string) ([]report.Finding, error) {
-	var findings []report.Finding
+// Files that cannot be read (permission/I/O errors) are recorded in
+// Result.Skipped rather than silently dropped, so the caller can tell a clean
+// scan from an incomplete one. It is detection-only and never modifies the tree.
+func (s *Scanner) ScanDir(root string) (Result, error) {
+	var res Result
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			if d == nil {
+				return err // root itself is unreadable: surface as a hard error
+			}
+
+			res.Skipped = append(res.Skipped, Skip{Path: path, Reason: err.Error()})
+
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+
+			return nil
 		}
 
 		if d.IsDir() {
@@ -85,16 +113,18 @@ func (s *Scanner) ScanDir(root string) ([]report.Finding, error) {
 
 		info, ierr := d.Info()
 		if ierr != nil {
-			return nil // skip unreadable entry, keep going
+			res.Skipped = append(res.Skipped, Skip{Path: path, Reason: ierr.Error()})
+			return nil
 		}
 
 		if info.Size() == 0 || info.Size() > maxFileSize {
-			return nil
+			return nil // intentional policy skip, not an error
 		}
 
 		content, rerr := os.ReadFile(path)
 		if rerr != nil {
-			return nil // unreadable file: skip, don't abort the whole scan
+			res.Skipped = append(res.Skipped, Skip{Path: path, Reason: rerr.Error()})
+			return nil
 		}
 
 		if isBinary(content) {
@@ -106,15 +136,15 @@ func (s *Scanner) ScanDir(root string) ([]report.Finding, error) {
 			rel = path
 		}
 
-		findings = append(findings, s.ScanBytes(rel, content)...)
+		res.Findings = append(res.Findings, s.ScanBytes(rel, content)...)
 
 		return nil
 	})
 	if walkErr != nil {
-		return findings, fmt.Errorf("scan: walking %s: %w", root, walkErr)
+		return res, fmt.Errorf("scan: walking %s: %w", root, walkErr)
 	}
 
-	return findings, nil
+	return res, nil
 }
 
 // isBinary reports whether content looks like a binary blob (contains a NUL in

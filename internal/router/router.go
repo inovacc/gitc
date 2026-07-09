@@ -10,7 +10,10 @@
 // resolution and remains for back-compat.
 package router
 
-import "github.com/inovacc/gitc/internal/shortcut"
+import (
+	"github.com/inovacc/gitc/internal/gitargs"
+	"github.com/inovacc/gitc/internal/shortcut"
+)
 
 // Kind is the classified invocation type.
 type Kind int
@@ -41,6 +44,9 @@ var firstClassMeta = map[string]bool{
 	"uninstall": true,
 	"where":     true,
 	"fetch-git": true,
+	"update":    true,
+	"doctor":    true,
+	"cmdtree":   true,
 }
 
 // Decision is the result of classification.
@@ -50,27 +56,40 @@ type Decision struct {
 	Args     []string
 }
 
-// Classify routes args (the arguments after the program name).
+// Classify routes args (the arguments after the program name). It resolves the
+// subcommand past any leading git global flags (via gitargs), so gitc-native
+// commands and shortcuts still fire when prefixed, e.g. `git -c x=y scan`.
+//
+// gitc-native commands and shortcuts are gitc concepts, not git subcommands:
+// when routed as Meta/RunShortcut the leading git globals are dropped (they do
+// not apply to gitc's own commands). Anything not gitc-native passes through
+// verbatim — full args, globals intact — so real git behavior is untouched.
 func Classify(args []string, shortcuts []shortcut.Shortcut) Decision {
 	if len(args) == 0 {
 		return Decision{Kind: Passthrough}
 	}
 
-	first := args[0]
+	idx := gitargs.SubcommandIndex(args)
+	if idx < 0 {
+		// Only global flags, no subcommand: pass through verbatim.
+		return Decision{Kind: Passthrough, Args: args}
+	}
+
+	sub := args[idx]
 
 	// `git gitc ...` forces gitc's namespace (explicit escape + back-compat).
 	// Args after the token (Args[0] = the gitc command, empty ⇒ self-info).
-	if first == GitcToken {
-		return Decision{Kind: Meta, Args: args[1:]}
+	if sub == GitcToken {
+		return Decision{Kind: Meta, Args: args[idx+1:]}
 	}
 	// First-class gitc-native commands: `git scan`, `git audit`, ...
-	if firstClassMeta[first] {
-		return Decision{Kind: Meta, Args: args}
+	if firstClassMeta[sub] {
+		return Decision{Kind: Meta, Args: args[idx:]}
 	}
 	// Built-in shortcuts.
 	for _, sc := range shortcuts {
-		if first == sc.Name {
-			return Decision{Kind: RunShortcut, Shortcut: sc, Args: args[1:]}
+		if sub == sc.Name {
+			return Decision{Kind: RunShortcut, Shortcut: sc, Args: args[idx+1:]}
 		}
 	}
 	// Everything else is real git.

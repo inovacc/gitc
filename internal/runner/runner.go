@@ -18,6 +18,7 @@ import (
 
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/enrich"
+	"github.com/inovacc/gitc/internal/redact"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
 )
@@ -129,10 +130,12 @@ func (r *Runner) baseRecord(args []string, mode, shortcutName string) store.Reco
 	cwd, _ := os.Getwd()
 
 	return store.Record{
-		OSUser:      r.osUser,
-		Identity:    r.identity,
-		Cwd:         cwd,
-		Argv:        args,
+		OSUser:   r.osUser,
+		Identity: r.identity,
+		Cwd:      cwd,
+		// Store a credential-masked copy of argv (the backend still runs the
+		// real args); a token in a clone URL must not persist in the audit DB.
+		Argv:        redact.Args(args),
 		EnvSubset:   captureEnv(),
 		Backend:     string(r.backend.Kind),
 		BackendPath: r.backend.Path,

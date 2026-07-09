@@ -29,12 +29,13 @@ import (
 	"github.com/inovacc/gitc/internal/router"
 	"github.com/inovacc/gitc/internal/runner"
 	"github.com/inovacc/gitc/internal/scan"
+	"github.com/inovacc/gitc/internal/selfupdate"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
 )
 
 // gitReleaseJSON is the pinned git-for-windows MinGit manifest (URLs + sha256
-// per platform), embedded so `gitc gitc fetch-git` can download and verify a
+// per platform), embedded so `gitc fetch-git` can download and verify a
 // known-good git without a network query for the version list.
 //
 //go:embed git_release.json
@@ -190,6 +191,12 @@ func runMeta(args []string, st *store.Store) int { //nolint:funlen // command di
 		return runScan(args[1:])
 	case "fetch-git":
 		return runFetchGit(args[1:])
+	case "update":
+		return runUpdate(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
+	case "cmdtree":
+		return runCmdtree(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "gitc: unknown command %q\n", cmd)
 		printMetaHelp()
@@ -203,7 +210,7 @@ func runMeta(args []string, st *store.Store) int { //nolint:funlen // command di
 // (git_release.json); --latest queries the git-for-windows releases API for the
 // newest version (no pinned hash); --list shows recent releases.
 func runFetchGit(args []string) int {
-	var list, latest bool
+	var list, latest, acceptUnverified bool
 
 	for _, a := range args {
 		switch a {
@@ -211,6 +218,8 @@ func runFetchGit(args []string) int {
 			list = true
 		case "--latest":
 			latest = true
+		case "--i-accept-unverified":
+			acceptUnverified = true
 		default:
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
 			return 2
@@ -220,41 +229,64 @@ func runFetchGit(args []string) int {
 	ctx := context.Background()
 	base := paths.GitCacheDir()
 
-	if list {
-		rels, err := gitwin.List(ctx, 10)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-			return 1
-		}
+	switch {
+	case list:
+		return fetchGitList(ctx)
+	case latest:
+		return fetchGitLatest(ctx, base, acceptUnverified)
+	default:
+		return fetchGitPinned(ctx, base)
+	}
+}
 
-		for _, r := range rels {
-			fmt.Println(r.Tag)
-		}
-
-		return 0
+// fetchGitList prints the recent git-for-windows release tags.
+func fetchGitList(ctx context.Context) int {
+	rels, err := gitwin.List(ctx, 10)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
 	}
 
-	if latest {
-		rel, err := gitwin.Latest(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-			return 1
-		}
-
-		fmt.Printf("fetching git-for-windows %s (%s)...\n", rel.Tag, runtime.GOARCH)
-
-		gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-			return 1
-		}
-
-		fmt.Printf("installed (unverified): %s\n", gitExe)
-
-		return 0
+	for _, r := range rels {
+		fmt.Println(r.Tag)
 	}
 
-	// Default: the embedded, hash-pinned manifest.
+	return 0
+}
+
+// fetchGitLatest downloads the newest git-for-windows release. It is UNPINNED
+// (no sha256 to verify against), so it refuses unless the operator opted in with
+// --i-accept-unverified.
+func fetchGitLatest(ctx context.Context, base string, acceptUnverified bool) int {
+	if !acceptUnverified {
+		fmt.Fprintln(os.Stderr, "gitc fetch-git --latest downloads an UNPINNED git with no sha256 verification.")
+		fmt.Fprintln(os.Stderr, "Prefer `git fetch-git` (embedded, hash-pinned + verified).")
+		fmt.Fprintln(os.Stderr, "To override and accept an unverified binary, re-run with --i-accept-unverified.")
+
+		return 1
+	}
+
+	rel, err := gitwin.Latest(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(os.Stderr, "warning: installing UNVERIFIED git-for-windows %s (%s)\n", rel.Tag, runtime.GOARCH)
+
+	gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("installed (UNVERIFIED, --i-accept-unverified): %s\n", gitExe)
+
+	return 0
+}
+
+// fetchGitPinned downloads the embedded, hash-pinned MinGit and verifies it.
+func fetchGitPinned(ctx context.Context, base string) int {
 	m, err := gitwin.ParseManifest(gitReleaseJSON)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
@@ -282,6 +314,64 @@ func runFetchGit(args []string) int {
 	return 0
 }
 
+// runUpdate implements `git update`: check the gitc GitHub releases for a newer
+// version (--check) or download and replace this binary in place (--apply). With
+// no flag it checks and, if an update exists, tells the user to pass --apply.
+func runUpdate(args []string) int {
+	var check, apply bool
+
+	for _, a := range args {
+		switch a {
+		case "--check":
+			check = true
+		case "--apply":
+			apply = true
+		default:
+			fmt.Fprintf(os.Stderr, "git update: unknown flag %q\n", a)
+			return 2
+		}
+	}
+
+	ctx := context.Background()
+
+	info, err := selfupdate.Check(ctx, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git update: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("current: %s\nlatest:  %s\n", info.Current, info.Latest)
+
+	if !info.HasUpdate {
+		fmt.Println("gitc is up to date.")
+		return 0
+	}
+
+	fmt.Printf("a newer release is available: %s\n", info.Latest)
+
+	if check || !apply {
+		fmt.Println("run `git update --apply` to install it.")
+		return 0
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git update: locate self: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("downloading %s...\n", info.Asset.Name)
+
+	if err := selfupdate.Apply(ctx, info.Asset, self); err != nil {
+		fmt.Fprintf(os.Stderr, "git update: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("updated to %s: %s\n", info.Latest, self)
+
+	return 0
+}
+
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
 func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
@@ -301,9 +391,12 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "  git scrub [opts]        rewrite history: purge paths / redact text (--force to apply)")
 	fmt.Fprintln(os.Stderr, "  git audit [N]           show the last N audited invocations")
 	fmt.Fprintln(os.Stderr, "  git where               show resolved git backend and audit DB path")
+	fmt.Fprintln(os.Stderr, "  git doctor              health-check install, backend, PATH shim, audit DB")
+	fmt.Fprintln(os.Stderr, "  git update [--check|--apply]     self-update gitc from GitHub releases")
 	fmt.Fprintln(os.Stderr, "  git fetch-git [--latest|--list]  download a git backend (pinned MinGit by default)")
 	fmt.Fprintln(os.Stderr, "  git install [--apply]   install the PATH shim (--apply prepends PATH)")
 	fmt.Fprintln(os.Stderr, "  git uninstall           remove the PATH shim")
+	fmt.Fprintln(os.Stderr, "  git cmdtree [-b|--json] show the full command tree")
 	fmt.Fprintln(os.Stderr, "  git sync|undo|log-graph|quick-commit    built-in shortcuts")
 	fmt.Fprintln(os.Stderr, "  git gitc version        print gitc's own version")
 }
@@ -506,6 +599,7 @@ func printScrubPlan(fl scrubFlags) {
 // if any secrets are found (so it is usable as a CI gate) and 0 when clean.
 func runScan(args []string) int {
 	path := "."
+	strict := false
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -514,6 +608,8 @@ func runScan(args []string) int {
 			// Scanning captured audit-log argv/env is a planned follow-up
 			// (see docs/BACKLOG.md). Working-tree scanning is the priority.
 			fmt.Fprintln(os.Stderr, "git scan: --audit is not implemented yet; scanning the working tree")
+		case a == "--strict":
+			strict = true
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(os.Stderr, "git scan: unknown flag %q\n", a)
 			return 2
@@ -528,13 +624,13 @@ func runScan(args []string) int {
 		return 1
 	}
 
-	findings, err := sc.ScanDir(path)
+	res, err := sc.ScanDir(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git scan: %v\n", err)
 		return 1
 	}
 
-	for _, f := range findings {
+	for _, f := range res.Findings {
 		loc := f.File
 		if f.StartLine > 0 {
 			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
@@ -543,14 +639,41 @@ func runScan(args []string) int {
 		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, maskSecret(f.Secret))
 	}
 
-	if len(findings) == 0 {
-		fmt.Printf("scan clean: no secrets found in %s\n", path)
+	reportSkipped(res.Skipped)
+
+	switch {
+	case len(res.Findings) > 0:
+		fmt.Printf("scan: %d potential secret(s) found in %s\n", len(res.Findings), path)
+		return 1
+	case strict && len(res.Skipped) > 0:
+		fmt.Printf("scan: no secrets found, but %d file(s) could not be read (--strict) in %s\n", len(res.Skipped), path)
+		return 1
+	default:
+		fmt.Printf("scan clean: no secrets found in %s (%d file(s) skipped)\n", path, len(res.Skipped))
 		return 0
 	}
+}
 
-	fmt.Printf("scan: %d potential secret(s) found in %s\n", len(findings), path)
+// reportSkipped warns (to stderr) about files the scan could not read, so a
+// clean result is never mistaken for a complete one. The list is capped to keep
+// output readable.
+func reportSkipped(skipped []scan.Skip) {
+	if len(skipped) == 0 {
+		return
+	}
 
-	return 1
+	const maxList = 10
+
+	fmt.Fprintf(os.Stderr, "git scan: %d file(s) could not be read:\n", len(skipped))
+
+	for i, sk := range skipped {
+		if i == maxList {
+			fmt.Fprintf(os.Stderr, "  ... and %d more\n", len(skipped)-maxList)
+			break
+		}
+
+		fmt.Fprintf(os.Stderr, "  %s: %s\n", sk.Path, sk.Reason)
+	}
 }
 
 // maskSecret returns a redacted snippet of a detected secret so the operator

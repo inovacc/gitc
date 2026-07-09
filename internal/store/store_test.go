@@ -64,6 +64,26 @@ func TestOpenInsertAndTail(t *testing.T) {
 	}
 }
 
+func TestOpenAppliesBusyTimeout(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gitc.db")
+
+	s, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	defer func() { _ = s.Close() }()
+
+	var got int
+	if err := s.db.QueryRow("PRAGMA busy_timeout").Scan(&got); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+
+	if got != busyTimeoutMS {
+		t.Errorf("busy_timeout = %d, want %d", got, busyTimeoutMS)
+	}
+}
+
 func TestInsertNilOptionalFields(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gitc.db")
 

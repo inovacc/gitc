@@ -30,6 +30,9 @@ const (
 	KindSystem Kind = "system"
 )
 
+// osWindows is runtime.GOOS on Windows, factored out for the PATH-name logic.
+const osWindows = "windows"
+
 // ErrNoBackend is returned when neither a downloaded git nor a non-self system
 // git can be found.
 var ErrNoBackend = errors.New("no git backend found: run `gitc gitc fetch-git` to download one, or install git on PATH")
@@ -62,7 +65,7 @@ func Resolve(managedPath, selfPath string) (Backend, error) {
 // resolved path differs from selfPath.
 func findSystemGit(selfPath string) (string, bool) {
 	names := []string{"git"}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		names = []string{"git.exe", "git.cmd", "git"}
 	}
 
@@ -123,7 +126,7 @@ func sameFile(a, b string) bool {
 		rb = r
 	}
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		if strings.EqualFold(ra, rb) {
 			return true
 		}

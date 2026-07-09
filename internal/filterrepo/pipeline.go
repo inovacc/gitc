@@ -121,7 +121,13 @@ func Run(ctx context.Context, opts Options) error { //nolint:funlen // export|tr
 
 	if importCmd != nil {
 		if err := importCmd.Start(); err != nil {
+			// Abort the already-started export without deadlocking: stop it and
+			// drain its stdout pipe so Wait can return even if fast-export had
+			// already filled the OS pipe buffer.
+			_ = exportCmd.Process.Kill()
+			_, _ = io.Copy(io.Discard, exportOut)
 			_ = exportCmd.Wait()
+
 			return fmt.Errorf("filterrepo: starting fast-import: %w", err)
 		}
 	}
