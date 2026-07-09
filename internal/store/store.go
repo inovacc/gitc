@@ -37,7 +37,7 @@ type Record struct {
 	OSUser      string            // OS username
 	Identity    string            // resolved identity, if any
 	Cwd         string            // working directory
-	Argv        []string          // raw argv passed to the backend
+	Argv        []string          // argv passed to the backend (URL/auth credentials masked)
 	EnvSubset   map[string]string // captured git-relevant env vars, raw values
 	Backend     string            // "vendored" | "system"
 	BackendPath string            // resolved absolute backend binary path
