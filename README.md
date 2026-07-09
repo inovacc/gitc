@@ -40,6 +40,30 @@ Before the shim is installed the binary is named `gitc`, so run its commands as
 `git`, the same commands run as `git <cmd>`. `git scrub` prints a plan and
 refuses to touch history unless you pass `--force` (or `--dry-run` to preview).
 
+## Commands
+
+gitc-native commands are first-class (`git <cmd>`); anything not listed here
+passes through to real git and is audited. Names that collide with real git
+(`clean`, `version`) are reached via the `git gitc <cmd>` namespace instead.
+
+| Command | Description |
+|---------|-------------|
+| `git scan [path]` | Detect secrets (gitleaks ruleset); exit 1 if any found — CI-usable |
+| `git scrub [opts]` | Rewrite history: purge paths / redact text. Plan-by-default; `--force` applies, `--dry-run` previews |
+| `git audit [N]` | Show the last N audited invocations (default 20) |
+| `git where` | Show the resolved git backend and audit DB path |
+| `git install [--apply]` | Install the PATH shim (`--apply` prepends PATH) |
+| `git uninstall` | Remove the PATH shim |
+| `git sync` | fetch + rebase onto upstream + push |
+| `git undo` | Soft-reset the last commit (keeps changes staged) |
+| `git log-graph` | Decorated commit graph across all refs |
+| `git quick-commit <msg>` | `git add -A` + `git commit -m <msg>` |
+| `git gitc` | gitc self-info (version, backend, audit path) + command list |
+| `git gitc version` | gitc's own version (real `git version` still passes through) |
+
+`git scrub` flags: `--path <p>` (repeatable), `--invert-paths`, `--replace-text <file>`,
+`--prune auto\|always\|never`, `--dry-run`, `--force`.
+
 ## Build
 
 ```bash
