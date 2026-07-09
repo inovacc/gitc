@@ -20,6 +20,16 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
+// openTimeout bounds the initial connectivity check so a stalled database file
+// (e.g. on a slow or hung network share) fails fast instead of blocking git
+// startup; the caller then runs without an audit log rather than hanging.
+const openTimeout = 3 * time.Second
+
+// busyTimeoutMS is how long SQLite waits for a held lock before returning
+// SQLITE_BUSY, so concurrent gitc processes serialize their audit writes
+// instead of silently dropping them.
+const busyTimeoutMS = 3000
+
 // Record is one forensic audit entry: everything gitc knows about a single
 // git invocation. Values are stored raw and unredacted by design.
 type Record struct {
@@ -62,9 +72,21 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open audit db: %w", err)
 	}
 
-	if err := db.PingContext(context.Background()); err != nil {
+	// Serialize on a single connection so concurrent gitc processes writing the
+	// same audit DB wait on the busy timeout rather than racing to SQLITE_BUSY.
+	db.SetMaxOpenConns(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping audit db: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout=%d", busyTimeoutMS)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
 	}
 
 	s := &Store{db: db}
