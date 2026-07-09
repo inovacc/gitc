@@ -21,6 +21,8 @@ import (
 	"github.com/inovacc/gitc/internal/paths"
 )
 
+const osWindows = "windows"
+
 // Result reports what an install performed and what the user must still do.
 type Result struct {
 	ShimDir     string
@@ -56,8 +58,14 @@ func Install(applyPath bool) (Result, error) {
 		return Result{}, fmt.Errorf("refusing to install: %w", err)
 	}
 
-	if err := copyExecutable(self, shimGit); err != nil {
-		return Result{}, err
+	// Copy gitc into the shim dir — unless we are already running *as* the shim
+	// (e.g. `git gitc install` where git is the installed shim). Windows cannot
+	// overwrite a running executable, and no copy is needed since the shim is
+	// already this exact binary; only the PATH step (if any) still applies.
+	if !sameExe(self, shimGit) {
+		if err := copyExecutable(self, shimGit); err != nil {
+			return Result{}, err
+		}
 	}
 
 	res := Result{
@@ -79,6 +87,24 @@ func Install(applyPath bool) (Result, error) {
 	res.Instruction = manualPathInstruction(shimDir)
 
 	return res, nil
+}
+
+// sameExe reports whether two paths refer to the same executable — by cleaned
+// path (case-insensitively on Windows) or by file identity.
+func sameExe(a, b string) bool {
+	if runtime.GOOS == osWindows {
+		if strings.EqualFold(filepath.Clean(a), filepath.Clean(b)) {
+			return true
+		}
+	} else if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+
+	ia, e1 := os.Stat(a)
+
+	ib, e2 := os.Stat(b)
+
+	return e1 == nil && e2 == nil && os.SameFile(ia, ib)
 }
 
 // Uninstall removes the shim directory. PATH cleanup is left to the user (or a
@@ -118,7 +144,7 @@ func copyExecutable(src, dst string) error {
 }
 
 func manualPathInstruction(shimDir string) string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		return fmt.Sprintf(
 			"Prepend the shim dir to your user PATH (PowerShell):\n"+
 				"  [Environment]::SetEnvironmentVariable('Path', '%s;' + "+
@@ -138,7 +164,7 @@ func manualPathInstruction(shimDir string) string {
 // platforms return an error directing the user to the manual instruction,
 // since editing shell rc files automatically is intentionally out of scope.
 func prependUserPath(dir string) error {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != osWindows {
 		return fmt.Errorf("automatic PATH apply is Windows-only; %s", manualPathInstruction(dir))
 	}
 	// Read the current user PATH, prepend dir if absent, write it back — all
