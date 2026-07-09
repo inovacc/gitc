@@ -46,7 +46,7 @@ func TestOpenInsertAndTail(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := s.Tail(10, &buf); err != nil {
+	if err := s.Tail(10, true, &buf); err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
 

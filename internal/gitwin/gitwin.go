@@ -295,6 +295,13 @@ func Ensure(ctx context.Context, rel Release, goarch, baseDir string) (string, e
 	return gitExe, nil
 }
 
+// VersionDir returns the directory-name form of a release version/tag, matching
+// the subdirectory Ensure/EnsurePinned unpack into. Callers use it to tell an
+// install of a given version from a different one.
+func VersionDir(version string) string {
+	return sanitizeTag(version)
+}
+
 // sanitizeTag makes a release tag safe as a directory name.
 func sanitizeTag(tag string) string {
 	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")

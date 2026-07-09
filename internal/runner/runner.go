@@ -18,6 +18,7 @@ import (
 
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/enrich"
+	"github.com/inovacc/gitc/internal/gitargs"
 	"github.com/inovacc/gitc/internal/redact"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
@@ -110,12 +111,18 @@ func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcut
 	rec.TS = time.Now()
 
 	res, err := r.backend.Run(ctx, args)
-	rec.ExitCode = res.ExitCode
-	rec.Duration = res.Duration
-
 	if err != nil {
 		fmt.Fprintf(r.warn, "gitc: %v\n", err)
 	}
+
+	// Help/usage/version invocations touch no repository state; run them but do
+	// not record them, so the audit log stays a log of real git operations.
+	if !auditable(args) {
+		return res.ExitCode
+	}
+
+	rec.ExitCode = res.ExitCode
+	rec.Duration = res.Duration
 
 	if blob, eerr := r.enricher.Enrich(ctx, rec.Cwd); eerr == nil {
 		rec.Enrichment = blob
@@ -124,6 +131,32 @@ func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcut
 	r.writeAudit(rec)
 
 	return res.ExitCode
+}
+
+// auditable reports whether an argv represents a real git operation worth
+// recording. Bare usage, help (help/-h/--help), and version queries are not.
+func auditable(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	for _, a := range args {
+		if a == "--help" || a == "-h" || a == "--version" {
+			return false
+		}
+	}
+
+	idx := gitargs.SubcommandIndex(args)
+	if idx < 0 {
+		return false
+	}
+
+	switch args[idx] {
+	case "help", "version":
+		return false
+	default:
+		return true
+	}
 }
 
 func (r *Runner) baseRecord(args []string, mode, shortcutName string) store.Record {
