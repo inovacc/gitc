@@ -28,6 +28,23 @@ integrations:
   scrub known-leaked secrets from historical audit rows, mirroring the
   filter-repo/BFG model for the audit store.
 
+## Hardening — deferred (low leverage)
+
+From the hardening audit (`docs/analysis/HARDENING-RUNBOOK.md`), consciously
+deferred as low value / high churn:
+
+- **H-12 — thread `context` through `store.Insert`/`Tail`.** Audit writes are
+  tiny local SQLite ops already serialized under `SetMaxOpenConns(1)`; caller
+  cancellation adds little. Low priority.
+- **H-13 — propagate `context` into `filterrepo` `gitOutput`/`gitExitCode` and
+  the exported helpers.** High signature churn across the parity-ported API for
+  fast, foreground scrub git calls. Partly mitigated: `main` now threads a
+  signal-cancelled ctx into `filterrepo.Run` (H-14).
+- **Audit-DB Windows ACL hardening** (from H-10). The DB already lives under the
+  user-scoped `%LOCALAPPDATA%\gitc`; explicit owner-only ACLs are a marginal add.
+- **Network retry for `internal/gitwin`** downloads (H-11 covered `selfupdate`
+  only). MinGit zip streaming would need range-resume to retry correctly.
+
 ## Other
 
 - Vendored git-from-source backend: fetch `third_party/git` submodule and run
