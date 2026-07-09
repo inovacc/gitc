@@ -29,12 +29,13 @@ import (
 	"github.com/inovacc/gitc/internal/router"
 	"github.com/inovacc/gitc/internal/runner"
 	"github.com/inovacc/gitc/internal/scan"
+	"github.com/inovacc/gitc/internal/selfupdate"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
 )
 
 // gitReleaseJSON is the pinned git-for-windows MinGit manifest (URLs + sha256
-// per platform), embedded so `gitc gitc fetch-git` can download and verify a
+// per platform), embedded so `gitc fetch-git` can download and verify a
 // known-good git without a network query for the version list.
 //
 //go:embed git_release.json
@@ -190,6 +191,12 @@ func runMeta(args []string, st *store.Store) int { //nolint:funlen // command di
 		return runScan(args[1:])
 	case "fetch-git":
 		return runFetchGit(args[1:])
+	case "update":
+		return runUpdate(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
+	case "cmdtree":
+		return runCmdtree(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "gitc: unknown command %q\n", cmd)
 		printMetaHelp()
@@ -282,6 +289,64 @@ func runFetchGit(args []string) int {
 	return 0
 }
 
+// runUpdate implements `git update`: check the gitc GitHub releases for a newer
+// version (--check) or download and replace this binary in place (--apply). With
+// no flag it checks and, if an update exists, tells the user to pass --apply.
+func runUpdate(args []string) int {
+	var check, apply bool
+
+	for _, a := range args {
+		switch a {
+		case "--check":
+			check = true
+		case "--apply":
+			apply = true
+		default:
+			fmt.Fprintf(os.Stderr, "git update: unknown flag %q\n", a)
+			return 2
+		}
+	}
+
+	ctx := context.Background()
+
+	info, err := selfupdate.Check(ctx, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git update: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("current: %s\nlatest:  %s\n", info.Current, info.Latest)
+
+	if !info.HasUpdate {
+		fmt.Println("gitc is up to date.")
+		return 0
+	}
+
+	fmt.Printf("a newer release is available: %s\n", info.Latest)
+
+	if check || !apply {
+		fmt.Println("run `git update --apply` to install it.")
+		return 0
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git update: locate self: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("downloading %s...\n", info.Asset.Name)
+
+	if err := selfupdate.Apply(ctx, info.Asset, self); err != nil {
+		fmt.Fprintf(os.Stderr, "git update: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("updated to %s: %s\n", info.Latest, self)
+
+	return 0
+}
+
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
 func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
@@ -301,9 +366,12 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "  git scrub [opts]        rewrite history: purge paths / redact text (--force to apply)")
 	fmt.Fprintln(os.Stderr, "  git audit [N]           show the last N audited invocations")
 	fmt.Fprintln(os.Stderr, "  git where               show resolved git backend and audit DB path")
+	fmt.Fprintln(os.Stderr, "  git doctor              health-check install, backend, PATH shim, audit DB")
+	fmt.Fprintln(os.Stderr, "  git update [--check|--apply]     self-update gitc from GitHub releases")
 	fmt.Fprintln(os.Stderr, "  git fetch-git [--latest|--list]  download a git backend (pinned MinGit by default)")
 	fmt.Fprintln(os.Stderr, "  git install [--apply]   install the PATH shim (--apply prepends PATH)")
 	fmt.Fprintln(os.Stderr, "  git uninstall           remove the PATH shim")
+	fmt.Fprintln(os.Stderr, "  git cmdtree [-b|--json] show the full command tree")
 	fmt.Fprintln(os.Stderr, "  git sync|undo|log-graph|quick-commit    built-in shortcuts")
 	fmt.Fprintln(os.Stderr, "  git gitc version        print gitc's own version")
 }

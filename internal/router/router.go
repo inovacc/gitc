@@ -41,6 +41,9 @@ var firstClassMeta = map[string]bool{
 	"uninstall": true,
 	"where":     true,
 	"fetch-git": true,
+	"update":    true,
+	"doctor":    true,
+	"cmdtree":   true,
 }
 
 // Decision is the result of classification.
