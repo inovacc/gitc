@@ -31,6 +31,12 @@ const releasesAPI = "https://api.github.com/repos/inovacc/gitc/releases/latest"
 // httpTimeout bounds both the metadata query and the asset download.
 const httpTimeout = 2 * time.Minute
 
+// maxAttempts and retryBackoff bound the retry of transient network failures.
+const (
+	maxAttempts  = 3
+	retryBackoff = 300 * time.Millisecond
+)
+
 // Asset is a downloadable release binary for one platform.
 type Asset struct {
 	Name string
@@ -167,29 +173,12 @@ func expectedSHA(manifest []byte, name string) (string, bool) {
 func latestRelease(ctx context.Context) (ghRelease, error) {
 	var rel ghRelease
 
-	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releasesAPI, nil)
-	if err != nil {
-		return rel, fmt.Errorf("build request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", "gitc-selfupdate")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := http.DefaultClient.Do(req)
+	body, err := getBody(ctx, releasesAPI, "application/vnd.github+json")
 	if err != nil {
 		return rel, fmt.Errorf("query releases: %w", err)
 	}
 
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return rel, fmt.Errorf("query releases: unexpected status %s", resp.Status)
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.Unmarshal(body, &rel); err != nil {
 		return rel, fmt.Errorf("decode release: %w", err)
 	}
 
@@ -198,33 +187,71 @@ func latestRelease(ctx context.Context) (ghRelease, error) {
 
 // download fetches url (following redirects) and returns its bytes.
 func download(ctx context.Context, url string) ([]byte, error) {
+	return getBody(ctx, url, "")
+}
+
+// getBody performs a GET (bounded by httpTimeout) with a small retry/backoff on
+// transient failures — network errors and 5xx responses — so a single dropped
+// connection or hiccup during a release query or download does not fail the
+// whole operation. 4xx responses and read errors are terminal.
+func getBody(ctx context.Context, url, accept string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		body, retryable, err := getBodyOnce(ctx, url, accept)
+		if err == nil {
+			return body, nil
+		}
+
+		lastErr = err
+		if !retryable || attempt == maxAttempts {
+			return nil, lastErr
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt) * retryBackoff):
+		}
+	}
+
+	return nil, lastErr
+}
+
+// getBodyOnce performs a single GET. retryable reports whether a failure is
+// worth retrying (network error or 5xx); 4xx and read/build errors are terminal.
+func getBodyOnce(ctx context.Context, url, accept string) (body []byte, retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, false, fmt.Errorf("build request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", "gitc-selfupdate")
 
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("download: %w", err)
+		return nil, true, fmt.Errorf("http get: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download: unexpected status %s", resp.Status)
+		return nil, resp.StatusCode >= http.StatusInternalServerError, fmt.Errorf("unexpected status %s", resp.Status)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, true, fmt.Errorf("read body: %w", err)
 	}
 
-	return data, nil
+	return body, false, nil
 }
 
 // swap replaces dest with data via rename-then-write, so it works while dest is

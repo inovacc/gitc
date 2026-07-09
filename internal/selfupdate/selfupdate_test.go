@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,6 +44,58 @@ func TestExpectedSHA(t *testing.T) {
 
 	if _, ok := expectedSHA(manifest, "gitc_darwin_arm64"); ok {
 		t.Error("expectedSHA should miss on an unlisted asset")
+	}
+}
+
+func TestGetBodyRetriesThenSucceeds(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+
+		if calls < maxAttempts {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	body, err := getBody(context.Background(), srv.URL, "")
+	if err != nil {
+		t.Fatalf("getBody after transient 5xx: %v", err)
+	}
+
+	if string(body) != "ok" {
+		t.Errorf("body = %q, want ok", body)
+	}
+
+	if calls != maxAttempts {
+		t.Errorf("expected %d attempts, got %d", maxAttempts, calls)
+	}
+}
+
+func TestGetBodyTerminalOn4xx(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	if _, err := getBody(context.Background(), srv.URL, ""); err == nil {
+		t.Fatal("expected an error on 404")
+	}
+
+	if calls != 1 {
+		t.Errorf("4xx must not retry: got %d calls, want 1", calls)
 	}
 }
 
