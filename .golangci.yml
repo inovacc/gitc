@@ -50,6 +50,13 @@ linters:
       # Enforced, but generous enough not to fragment cohesive parsers/handlers.
       lines: 80
       statements: 60
+    goconst:
+      # gitc's command/flag vocabulary (git subcommand names, arch/flag tokens)
+      # recurs across router map keys, the runMeta switch, and the cmdtree
+      # display catalog as DATA, not magic constants — centralizing it across
+      # packages would hurt readability without adding safety. Genuine duplicated
+      # literals elsewhere are still flagged.
+      ignore-string-values: '^(git|--all|arm64|amd64|386|init|scan|audit|scrub|where|install|uninstall|update|doctor|cmdtree|fetch-git|version|help|auto|always|never|string|bool|passthrough)$'
 
   exclusions:
     rules:
