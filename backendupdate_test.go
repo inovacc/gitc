@@ -3,11 +3,20 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/settings"
 )
+
+func TestPinnedAvailableMatchesPlatform(t *testing.T) {
+	// The in-code pinned MinGit manifest ships Windows builds only, so
+	// auto-provision is gated to Windows; other platforms rely on a system git.
+	if got := pinnedAvailable(); got != (runtime.GOOS == "windows") {
+		t.Errorf("pinnedAvailable() = %v on GOOS=%s", got, runtime.GOOS)
+	}
+}
 
 func TestAppUUID(t *testing.T) {
 	if appUUID("app/abc/v1") != "abc" {

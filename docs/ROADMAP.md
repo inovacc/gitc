@@ -35,7 +35,9 @@ README "Purpose" section).
 
 ### Managed git backend & updates (ADR 0004 / 0005)
 - **Self-provisioned MinGit** — `git fetch-git`; the pinned, sha256-verified
-  manifest lives in Go source (`gitwin.Pinned`), not a swappable data file.
+  manifest lives in Go source (`gitwin.Pinned`), not a swappable data file. On a
+  git-less Windows machine the first git command **auto-provisions** it (only
+  when no system git exists; other platforms use system git).
 - **settings.json resolution** — UUIDv7 side-by-side installs under `app/<uuid>/`;
   activation is an atomic pointer flip (`previous ← active`); old installs GC'd.
 - **Lazy background updater** — throttled, single-flight, detached check on
