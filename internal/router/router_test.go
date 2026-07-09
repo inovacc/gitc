@@ -42,6 +42,15 @@ func TestClassify(t *testing.T) {
 		{"gitc token unwraps scan", []string{"gitc", "scan"}, Meta, "", []string{"scan"}},
 		{"gitc token reaches version", []string{"gitc", "version"}, Meta, "", []string{"version"}},
 		{"bare gitc is self-info", []string{"gitc"}, Meta, "", []string{}},
+		// Leading git global flags must not hide gitc-native commands / shortcuts.
+		{"global -c before scan still meta", []string{"-c", "x=y", "scan"}, Meta, "", []string{"scan"}},
+		{"global -C before sync still shortcut", []string{"-C", "dir", "sync"}, RunShortcut, "sync", []string{}},
+		{"globals before gitc token", []string{"-c", "a=b", "gitc", "audit", "5"}, Meta, "", []string{"audit", "5"}},
+		{
+			"globals before real subcommand pass through verbatim",
+			[]string{"-c", "x=y", "status"}, Passthrough, "", []string{"-c", "x=y", "status"},
+		},
+		{"only globals, no subcommand, passes through", []string{"-c", "x=y"}, Passthrough, "", []string{"-c", "x=y"}},
 	}
 
 	for _, tt := range tests {
