@@ -12,10 +12,10 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -31,16 +31,11 @@ import (
 	"github.com/inovacc/gitc/internal/runner"
 	"github.com/inovacc/gitc/internal/scan"
 	"github.com/inovacc/gitc/internal/selfupdate"
+	"github.com/inovacc/gitc/internal/settings"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
+	"github.com/inovacc/gitc/internal/uuidv7"
 )
-
-// gitReleaseJSON is the pinned git-for-windows MinGit manifest (URLs + sha256
-// per platform), embedded so `gitc fetch-git` can download and verify a
-// known-good git without a network query for the version list.
-//
-//go:embed git_release.json
-var gitReleaseJSON []byte
 
 // version is injected at build time via -ldflags "-X main.version=...".
 var version = "dev"
@@ -211,10 +206,11 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 	}
 }
 
-// runFetchGit downloads a git backend (git-for-windows MinGit) and unpacks it
-// into the git cache. By default it uses the embedded, hash-pinned manifest
-// (git_release.json); --latest queries the git-for-windows releases API for the
-// newest version (no pinned hash); --list shows recent releases.
+// runFetchGit downloads a git backend (git-for-windows MinGit) into a fresh
+// app/<uuid>/ install and activates it via settings.json. By default it uses the
+// in-code hash-pinned manifest (gitwin.Pinned); --latest queries the
+// git-for-windows releases API for the newest version (no pinned hash); --list
+// shows recent releases.
 func runFetchGit(ctx context.Context, args []string) int {
 	var list, latest, acceptUnverified bool
 
@@ -232,15 +228,13 @@ func runFetchGit(ctx context.Context, args []string) int {
 		}
 	}
 
-	base := paths.GitCacheDir()
-
 	switch {
 	case list:
 		return fetchGitList(ctx)
 	case latest:
-		return fetchGitLatest(ctx, base, acceptUnverified)
+		return fetchGitLatest(ctx, acceptUnverified)
 	default:
-		return fetchGitPinned(ctx, base)
+		return fetchGitPinned(ctx)
 	}
 }
 
@@ -262,16 +256,22 @@ func fetchGitList(ctx context.Context) int {
 // fetchGitLatest downloads the newest git-for-windows release. It is UNPINNED
 // (no sha256 to verify against), so it refuses unless the operator opted in with
 // --i-accept-unverified.
-func fetchGitLatest(ctx context.Context, base string, acceptUnverified bool) int {
+func fetchGitLatest(ctx context.Context, acceptUnverified bool) int {
 	if !acceptUnverified {
 		fmt.Fprintln(os.Stderr, "gitc fetch-git --latest downloads an UNPINNED git with no sha256 verification.")
-		fmt.Fprintln(os.Stderr, "Prefer `git fetch-git` (embedded, hash-pinned + verified).")
+		fmt.Fprintln(os.Stderr, "Prefer `git fetch-git` (in-code hash-pinned + verified).")
 		fmt.Fprintln(os.Stderr, "To override and accept an unverified binary, re-run with --i-accept-unverified.")
 
 		return 1
 	}
 
 	rel, err := gitwin.Latest(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
+		return 1
+	}
+
+	base, err := newInstallBase()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 		return 1
@@ -285,24 +285,28 @@ func fetchGitLatest(ctx context.Context, base string, acceptUnverified bool) int
 		return 1
 	}
 
-	fmt.Printf("installed (UNVERIFIED, --i-accept-unverified): %s\n", gitExe)
+	activateBackend(gitExe)
+	fmt.Printf("installed (UNVERIFIED, --i-accept-unverified) and activated: %s\n", gitExe)
 
 	return 0
 }
 
-// fetchGitPinned downloads the embedded, hash-pinned MinGit and verifies it.
-func fetchGitPinned(ctx context.Context, base string) int {
-	m, err := gitwin.ParseManifest(gitReleaseJSON)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
+// fetchGitPinned downloads the in-code hash-pinned MinGit (gitwin.Pinned),
+// verifies its sha256, installs it under app/<uuid>/, and activates it.
+func fetchGitPinned(ctx context.Context) int {
+	m := gitwin.Pinned()
 
 	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned git for %s/%s in git_release.json; try --latest\n",
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned git for %s/%s; try --latest\n",
 			runtime.GOOS, runtime.GOARCH)
 
+		return 1
+	}
+
+	base, err := newInstallBase()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 		return 1
 	}
 
@@ -314,7 +318,8 @@ func fetchGitPinned(ctx context.Context, base string) int {
 		return 1
 	}
 
-	fmt.Printf("installed and sha256-verified: %s\n", gitExe)
+	activateBackend(gitExe)
+	fmt.Printf("installed, sha256-verified and activated: %s\n", gitExe)
 
 	return 0
 }
@@ -707,5 +712,88 @@ func managedGitPath() string {
 		return v
 	}
 
-	return paths.ManagedGitPath()
+	return resolveManagedGit()
+}
+
+// resolveManagedGit returns the active managed git.exe recorded in settings.json.
+// On first run (or when settings has no active backend) it lazily adopts a legacy
+// git\<tag> install by recording it in settings in place — no bulk move of a
+// possibly in-use install. Returns "" when no managed git is available.
+func resolveManagedGit() string {
+	sp := paths.SettingsPath()
+
+	s, err := settings.LoadOrInit(sp)
+	if err != nil {
+		// Settings unavailable: fall back to the legacy newest-on-disk scan so
+		// git still resolves.
+		return paths.ManagedGitPath()
+	}
+
+	if s.Backend.Active != "" {
+		gitExe := filepath.Join(paths.DataDir(), filepath.FromSlash(s.Backend.Active), "cmd", "git.exe")
+		if _, statErr := os.Stat(gitExe); statErr == nil {
+			return gitExe
+		}
+	}
+
+	// First run / stale pointer: adopt the legacy install if one exists.
+	legacy := paths.ManagedGitPath()
+	if legacy == "" {
+		return ""
+	}
+
+	if rel, relErr := installRel(legacy); relErr == nil {
+		s.Backend.Active = rel
+		_ = settings.Save(sp, s) // best-effort; resolution already succeeded
+	}
+
+	return legacy
+}
+
+// installRel returns a git.exe's install root (its <version> dir) relative to
+// DataDir, slash-separated as stored in settings.json.
+func installRel(gitExe string) (string, error) {
+	versionDir := filepath.Dir(filepath.Dir(gitExe)) // .../<version>/cmd/git.exe -> .../<version>
+
+	rel, err := filepath.Rel(paths.DataDir(), versionDir)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.ToSlash(rel), nil
+}
+
+// newInstallBase reserves a fresh UUIDv7-namespaced directory (app/<uuid>) for a
+// new managed-git install, so a download never touches the in-use install.
+func newInstallBase() (string, error) {
+	id, err := uuidv7.New()
+	if err != nil {
+		return "", fmt.Errorf("generate install id: %w", err)
+	}
+
+	return filepath.Join(paths.AppDir(), id), nil
+}
+
+// activateBackend records gitExe's install as the active backend in settings.json
+// (demoting the prior active to previous) and stamps the backend check time, so
+// the next invocation resolves the new install.
+func activateBackend(gitExe string) {
+	rel, err := installRel(gitExe)
+	if err != nil {
+		return
+	}
+
+	sp := paths.SettingsPath()
+
+	s, err := settings.LoadOrInit(sp)
+	if err != nil {
+		return
+	}
+
+	if s.Backend.Active != rel {
+		s.Backend.Previous = s.Backend.Active
+		s.Backend.Active = rel
+	}
+
+	_ = settings.Save(sp, s)
 }
