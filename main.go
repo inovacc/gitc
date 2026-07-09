@@ -15,6 +15,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
@@ -45,11 +46,16 @@ var gitReleaseJSON []byte
 var version = "dev"
 
 func main() {
-	os.Exit(run(os.Args[1:]))
+	// A signal-cancelled context so Ctrl-C aborts in-flight work (notably the
+	// network downloads in `git update` / `git fetch-git`) instead of being
+	// ignored mid-transfer.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	os.Exit(run(ctx, os.Args[1:]))
 }
 
-func run(args []string) int {
-	ctx := context.Background()
+func run(ctx context.Context, args []string) int {
 	shortcuts := shortcut.All()
 	dec := router.Classify(args, shortcuts)
 
@@ -69,7 +75,7 @@ func run(args []string) int {
 	}()
 
 	if dec.Kind == router.Meta {
-		return runMeta(dec.Args, st)
+		return runMeta(ctx, dec.Args, st)
 	}
 
 	// Passthrough and shortcuts require a resolved backend. Fail fast before
@@ -102,7 +108,7 @@ func run(args []string) int {
 // runMeta handles gitc's own commands. They are reachable first-class as
 // `git <cmd>` (for names that don't collide with real git) and always via the
 // explicit `git gitc <cmd>` namespace. Bare `git gitc` prints gitc self-info.
-func runMeta(args []string, st *store.Store) int { //nolint:funlen // command dispatch switch
+func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint:funlen // command dispatch switch
 	cmd := ""
 	if len(args) > 0 {
 		cmd = args[0]
@@ -186,13 +192,13 @@ func runMeta(args []string, st *store.Store) int { //nolint:funlen // command di
 
 		return 0
 	case "scrub":
-		return runScrub(args[1:])
+		return runScrub(ctx, args[1:])
 	case "scan":
 		return runScan(args[1:])
 	case "fetch-git":
-		return runFetchGit(args[1:])
+		return runFetchGit(ctx, args[1:])
 	case "update":
-		return runUpdate(args[1:])
+		return runUpdate(ctx, args[1:])
 	case "doctor":
 		return runDoctor(args[1:])
 	case "cmdtree":
@@ -209,7 +215,7 @@ func runMeta(args []string, st *store.Store) int { //nolint:funlen // command di
 // into the git cache. By default it uses the embedded, hash-pinned manifest
 // (git_release.json); --latest queries the git-for-windows releases API for the
 // newest version (no pinned hash); --list shows recent releases.
-func runFetchGit(args []string) int {
+func runFetchGit(ctx context.Context, args []string) int {
 	var list, latest, acceptUnverified bool
 
 	for _, a := range args {
@@ -226,7 +232,6 @@ func runFetchGit(args []string) int {
 		}
 	}
 
-	ctx := context.Background()
 	base := paths.GitCacheDir()
 
 	switch {
@@ -317,7 +322,7 @@ func fetchGitPinned(ctx context.Context, base string) int {
 // runUpdate implements `git update`: check the gitc GitHub releases for a newer
 // version (--check) or download and replace this binary in place (--apply). With
 // no flag it checks and, if an update exists, tells the user to pass --apply.
-func runUpdate(args []string) int {
+func runUpdate(ctx context.Context, args []string) int {
 	var check, apply bool
 
 	for _, a := range args {
@@ -331,8 +336,6 @@ func runUpdate(args []string) int {
 			return 2
 		}
 	}
-
-	ctx := context.Background()
 
 	info, err := selfupdate.Check(ctx, version)
 	if err != nil {
@@ -416,7 +419,7 @@ type scrubFlags struct {
 // shadows real `git clean`. Without --force it prints the plan and refuses to
 // mutate; --dry-run exercises the export+transform pipeline but discards the
 // import so the repository is left untouched.
-func runScrub(args []string) int {
+func runScrub(ctx context.Context, args []string) int {
 	fl, err := parseScrubFlags(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
@@ -478,7 +481,7 @@ func runScrub(args []string) int {
 		DryRun: fl.dryRun,
 	}
 
-	if err := filterrepo.Run(context.Background(), opts); err != nil {
+	if err := filterrepo.Run(ctx, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
 		return 1
 	}
