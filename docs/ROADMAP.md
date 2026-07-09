@@ -48,9 +48,12 @@ The audit + scan + scrub are the building blocks; the enforcement is the goal.
 - [x] **Policy config** — `policy.json` (`internal/policy`): a machine/org
       enforcement policy (secret gate, remote allowlist) gitc reads read-only and
       a git flag can't override. Absent ⇒ no enforcement (opt-in).
-- [ ] **Audit-log secret scan** (`git scan --audit`) — scan captured argv/env in
-      the audit DB for secrets recorded raw.
-- [ ] **Tamper-evident audit log** — hash-chained / append-only-enforced records.
+- [x] **Audit-log secret scan** (`git scan --audit`) — scans the captured
+      argv/env of every audit row for secrets that slipped past write-time
+      redaction; exit 1 on findings.
+- [x] **Tamper-evident audit log** — each row folds in the previous row's
+      sha256 (`prev_hash`/`row_hash`); `git audit --verify` detects a deleted or
+      edited row and reports the first break.
 
 ## Later
 

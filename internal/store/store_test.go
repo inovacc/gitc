@@ -84,6 +84,51 @@ func TestOpenAppliesBusyTimeout(t *testing.T) {
 	}
 }
 
+func TestVerifyDetectsTamper(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gitc.db")
+
+	s, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	defer func() { _ = s.Close() }()
+
+	for i := 0; i < 3; i++ {
+		rec := Record{
+			TS: time.Now(), OSUser: "u", Cwd: ".", Argv: []string{"status"},
+			EnvSubset: map[string]string{}, Backend: "system", BackendPath: "/git",
+			Mode: "passthrough", ExitCode: 0, Duration: time.Millisecond,
+		}
+		if err := s.Insert(rec); err != nil {
+			t.Fatalf("Insert %d: %v", i, err)
+		}
+	}
+
+	res, err := s.Verify()
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+
+	if !res.Intact || res.Checked != 3 {
+		t.Fatalf("expected intact chain of 3, got %+v", res)
+	}
+
+	// Tamper: edit row 2's argv directly, bypassing Insert.
+	if _, err := s.db.Exec(`UPDATE audit_log SET argv = '["evil"]' WHERE id = 2`); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err = s.Verify()
+	if err != nil {
+		t.Fatalf("Verify after tamper: %v", err)
+	}
+
+	if res.Intact || res.BrokenID != 2 {
+		t.Errorf("expected chain broken at id 2, got %+v", res)
+	}
+}
+
 func TestInsertNilOptionalFields(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gitc.db")
 

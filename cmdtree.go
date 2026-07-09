@@ -46,7 +46,7 @@ type cmdNode struct {
 // gitcTree returns gitc's full command catalog rooted at `git`.
 func gitcTree() cmdNode { //nolint:funlen // static command catalog
 	scanFlags := []cmdFlag{
-		{Name: "audit", Type: "bool", Description: "scan captured audit-log argv/env (planned)"},
+		{Name: "audit", Type: "bool", Description: "scan the audit DB's captured argv/env for secrets"},
 		{Name: "strict", Type: "bool", Description: "exit non-zero if any file could not be read"},
 	}
 	scrubFlags := []cmdFlag{
@@ -78,6 +78,7 @@ func gitcTree() cmdNode { //nolint:funlen // static command catalog
 			Short: "Show the last N audited invocations (compact; --wide for full)",
 			Flags: []cmdFlag{
 				{Name: "wide", Shorthand: "w", Type: "bool", Description: "full record instead of the compact summary"},
+				{Name: "verify", Type: "bool", Description: "verify the tamper-evident hash chain"},
 			},
 		},
 		{Name: "where", Usage: "git where", Short: "Show resolved git backend and audit DB path"},
