@@ -102,6 +102,12 @@ func SettingsPath() string {
 	return filepath.Join(DataDir(), "settings.json")
 }
 
+// PolicyPath returns the path to policy.json, the machine/org enforcement
+// policy (secret gate, remote allowlist). Absent means no enforcement.
+func PolicyPath() string {
+	return filepath.Join(DataDir(), "policy.json")
+}
+
 // ManagedGitPath returns the path to the newest downloaded MinGit git binary
 // (fetched by `gitc gitc fetch-git`), or "" if none is cached. Override the
 // backend explicitly with GITC_GIT_BACKEND.

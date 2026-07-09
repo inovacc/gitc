@@ -67,6 +67,38 @@ func TestScanDirFindsSecretsAndReportsNoSkips(t *testing.T) {
 	}
 }
 
+func TestScanDirSkipsVendoredDirs(t *testing.T) {
+	dir := t.TempDir()
+	secret := []byte("gitlab_token = glpat-R8xK2mQ7vL9nP4wZ1tY6\n")
+
+	// Same secret in a vendored dir (skipped) and at the top level (found).
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "leak.env"), secret, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "app.env"), secret, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	res, err := s.ScanDir(dir)
+	if err != nil {
+		t.Fatalf("ScanDir: %v", err)
+	}
+
+	if len(res.Findings) != 1 {
+		t.Errorf("expected exactly 1 finding (top-level only; node_modules skipped), got %d", len(res.Findings))
+	}
+}
+
 func TestScanDirNonexistentRootErrors(t *testing.T) {
 	s, err := New()
 	if err != nil {

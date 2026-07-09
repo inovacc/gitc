@@ -21,6 +21,18 @@ import (
 // scanning them wastes memory).
 const maxFileSize = 10 << 20 // 10 MiB
 
+// skipDirs are directory names skipped by default: VCS metadata and large
+// vendored/dependency trees, where findings are third-party noise rather than
+// the repository's own leaked secrets.
+var skipDirs = map[string]bool{
+	".git":         true,
+	".svn":         true,
+	".hg":          true,
+	"node_modules": true,
+	"vendor":       true,
+	"third_party":  true,
+}
+
 // Scanner runs gitleaks secret detection over strings and directory trees. It
 // is safe to reuse across many scans; construct it once with New.
 type Scanner struct {
@@ -100,7 +112,7 @@ func (s *Scanner) ScanDir(root string) (Result, error) {
 		}
 
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			if skipDirs[d.Name()] && path != root {
 				return filepath.SkipDir
 			}
 

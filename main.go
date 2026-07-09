@@ -97,6 +97,11 @@ func run(ctx context.Context, args []string) int {
 		return r.Shortcut(ctx, dec.Shortcut, dec.Args)
 	default:
 		args := dec.Args
+		// Enforce the machine/org policy (secret gate, remote allowlist) before
+		// the command runs. A blocked command never reaches git.
+		if code, blocked := enforceGates(args); blocked {
+			return code
+		}
 		// New repos default to `main`, not `master`, unless the user chose a
 		// branch. Only inject when the backend git supports the flag.
 		if idx, ok := policy.InitNeedsBranch(args); ok && b.SupportsInitialBranch(ctx) {
