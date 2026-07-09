@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dyammarcano/gitc/internal/backend"
-	"github.com/dyammarcano/gitc/internal/enrich"
-	"github.com/dyammarcano/gitc/internal/shortcut"
-	"github.com/dyammarcano/gitc/internal/store"
+	"github.com/inovacc/gitc/internal/backend"
+	"github.com/inovacc/gitc/internal/enrich"
+	"github.com/inovacc/gitc/internal/shortcut"
+	"github.com/inovacc/gitc/internal/store"
 )
 
 // envCaptureExact and envCapturePrefix define which environment variables are

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/dyammarcano/gitc/internal/db"
+	"github.com/inovacc/gitc/internal/db"
 )
 
 // Platform holds shared infrastructure connections.

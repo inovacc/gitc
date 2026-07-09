@@ -1,4 +1,4 @@
-module github.com/dyammarcano/gitc
+module github.com/inovacc/gitc
 
 go 1.26.4
 

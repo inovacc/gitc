@@ -3,13 +3,35 @@
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 ![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey)
+![Use](https://img.shields.io/badge/use-internal%20%C2%B7%20corporate-8A2BE2)
 ![Status](https://img.shields.io/badge/status-WIP-orange)
 
-> A **git binary replacement** — a transparent, forensic proxy in front of real
-> git. It forwards every command while keeping an append-only audit trail of
-> what ran, when, where, and with what result, and adds first-class commands:
-> secret scanning (`git scan`), history scrubbing (`git scrub`), and shortcuts
-> (`git sync`/`undo`/`log-graph`/`quick-commit`).
+> A drop-in **`git` for AI agent harnesses.** gitc transparently replaces `git`
+> so autonomous AI coding agents can't route around it — giving you a
+> **non-bypassable, forensically-audited gate** to stop agents from publishing
+> secrets or sensitive corporate data.
+
+## Purpose — a leak-prevention gate for AI agents
+
+gitc exists for one job: **stop AI coding agents from publishing sensitive
+information through git, and record everything they do.**
+
+AI agents increasingly run `git` autonomously inside corporate codebases. gitc
+installs *as* `git` (a PATH-precedence shim), so an agent's every `git` call
+flows through it and can't be bypassed. That makes gitc a single, enforceable
+control point where you can:
+
+- **Audit** — an append-only forensic log of every git invocation an agent runs
+  (what, when, where, args, environment, result).
+- **Detect** — `git scan` flags secrets (gitleaks ruleset) before they leave.
+- **Remediate** — `git scrub` purges secrets/paths from history.
+- **Gate** *(roadmap)* — hard pre-commit/pre-push gates that **block** an agent
+  from committing/pushing detected secrets or reaching unapproved remotes.
+
+Today gitc ships the audit trail + `scan` + `scrub`; the enforcing hard gates
+are the active direction (see [docs/ROADMAP.md](docs/ROADMAP.md)). Because the
+agent talks to what it believes is `git`, these controls apply without the
+agent's cooperation.
 
 ## Quickstart
 
@@ -122,6 +144,15 @@ companion toolchain documented in [docs/REFERENCES.md](docs/REFERENCES.md):
 Further planned integrations (a pre-flight secret gate, an audit-DB scrub tool)
 are tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
 
+## Scope & contributing
+
+gitc is an **internal, corporate-focused** tool: its design and roadmap are
+driven by enterprise leak-prevention needs for AI-agent harnesses, not
+general-purpose git tooling. It is provided **open source (BSD-3-Clause) — you
+are welcome to fork and contribute** — but it is tailored for corporate
+requirements and offered *as-is*; priorities follow those needs. If a change
+fits that mission, PRs are welcome.
+
 ## License
 
-BSD-3-Clause — see [LICENSE](LICENSE). Copyright (c) 2026 dyammarcano.
+BSD-3-Clause — see [LICENSE](LICENSE). Copyright (c) 2026 inovacc.
