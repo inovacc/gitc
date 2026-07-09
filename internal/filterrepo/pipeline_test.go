@@ -14,6 +14,7 @@ import (
 // it is not (e.g. CI images without git).
 func gitAvailable(t *testing.T) {
 	t.Helper()
+
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available on PATH")
 	}
@@ -22,13 +23,18 @@ func gitAvailable(t *testing.T) {
 // runGitT runs git in dir, failing the test on error.
 func runGitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+
 	var out, errb bytes.Buffer
+
 	cmd.Stdout = &out
+
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, errb.String())
 	}
+
 	return strings.TrimRight(out.String(), "\r\n")
 }
 
@@ -41,11 +47,13 @@ func initRepo(t *testing.T) string {
 	runGitT(t, dir, "config", "user.name", "Test")
 	runGitT(t, dir, "config", "user.email", "test@example.com")
 	runGitT(t, dir, "config", "commit.gpgsign", "false")
+
 	return dir
 }
 
 func writeRepoFile(t *testing.T, dir, name, content string) {
 	t.Helper()
+
 	p := filepath.Join(dir, name)
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
@@ -81,6 +89,7 @@ func TestRunRemovesPathFromAllHistory(t *testing.T) {
 	if err := spec.AddMatch([]byte("secret.txt")); err != nil {
 		t.Fatalf("AddMatch: %v", err)
 	}
+
 	spec.Invert = true // remove matching path
 
 	err := Run(context.Background(), Options{
@@ -148,6 +157,7 @@ func TestRunReplaceTextRedactsSecret(t *testing.T) {
 	revs := nonEmptyLines(runGitT(t, dir, "rev-list", "--all"))
 	grepArgs := append([]string{"grep", "-I", secret}, revs...)
 	cmd := exec.Command("git", append([]string{"-C", dir}, grepArgs...)...)
+
 	out, _ := cmd.CombinedOutput()
 	if len(bytes.TrimSpace(out)) != 0 {
 		t.Fatalf("secret still found in history:\n%s", out)
@@ -158,6 +168,7 @@ func TestRunReplaceTextRedactsSecret(t *testing.T) {
 	if !strings.Contains(head, "REDACTED") {
 		t.Fatalf("replacement not found in HEAD config.txt:\n%s", head)
 	}
+
 	if strings.Contains(head, secret) {
 		t.Fatalf("secret still present in HEAD config.txt")
 	}
@@ -167,10 +178,12 @@ func TestRunReplaceTextRedactsSecret(t *testing.T) {
 
 func nonEmptyLines(s string) []string {
 	var out []string
+
 	for _, l := range strings.Split(s, "\n") {
 		if strings.TrimSpace(l) != "" {
 			out = append(out, l)
 		}
 	}
+
 	return out
 }

@@ -11,10 +11,12 @@ import (
 
 func TestOpenInsertAndTail(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "audit", "gitc.db")
+
 	s, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+
 	defer func() { _ = s.Close() }()
 
 	rec := Record{
@@ -37,6 +39,7 @@ func TestOpenInsertAndTail(t *testing.T) {
 	// Second row to confirm append-only accumulation and ordering.
 	rec2 := rec
 	rec2.Argv = []string{"push"}
+
 	rec2.ExitCode = 1
 	if err := s.Insert(rec2); err != nil {
 		t.Fatalf("Insert 2: %v", err)
@@ -46,10 +49,12 @@ func TestOpenInsertAndTail(t *testing.T) {
 	if err := s.Tail(10, &buf); err != nil {
 		t.Fatalf("Tail: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, "alice") {
 		t.Errorf("tail missing user: %q", out)
 	}
+
 	if !strings.Contains(out, "commit") || !strings.Contains(out, "push") {
 		t.Errorf("tail missing argv rows: %q", out)
 	}
@@ -61,10 +66,12 @@ func TestOpenInsertAndTail(t *testing.T) {
 
 func TestInsertNilOptionalFields(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gitc.db")
+
 	s, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+
 	defer func() { _ = s.Close() }()
 
 	// No identity, no shortcut, no enrichment — should insert cleanly as NULLs.

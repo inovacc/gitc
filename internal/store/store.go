@@ -4,6 +4,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -60,7 +61,8 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open audit db: %w", err)
 	}
-	if err := db.Ping(); err != nil {
+
+	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping audit db: %w", err)
 	}
@@ -70,30 +72,36 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+
 	return s, nil
 }
 
-func (s *Store) migrate() error {
+func (s *Store) migrate() error { //nolint:funcorder // grouped with the other setup logic
 	entries, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
+
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() {
 			names = append(names, e.Name())
 		}
 	}
+
 	sort.Strings(names)
+
 	for _, name := range names {
 		sqlBytes, err := migrations.ReadFile("migrations/" + name)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
-		if _, err := s.db.Exec(string(sqlBytes)); err != nil {
+
+		if _, err := s.db.ExecContext(context.Background(), string(sqlBytes)); err != nil {
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 	}
+
 	return nil
 }
 
@@ -103,18 +111,22 @@ func (s *Store) Insert(r Record) error {
 	if err != nil {
 		return fmt.Errorf("marshal argv: %w", err)
 	}
+
 	env, err := json.Marshal(r.EnvSubset)
 	if err != nil {
 		return fmt.Errorf("marshal env: %w", err)
 	}
+
 	var enrichment any
 	if len(r.Enrichment) > 0 {
 		enrichment = string(r.Enrichment)
 	}
+
 	var identity, shortcut any
 	if r.Identity != "" {
 		identity = r.Identity
 	}
+
 	if r.Shortcut != "" {
 		shortcut = r.Shortcut
 	}
@@ -123,7 +135,8 @@ func (s *Store) Insert(r Record) error {
         (ts, os_user, identity, cwd, argv, env_subset, backend, backend_path,
          mode, shortcut, exit_code, duration_ms, enrichment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = s.db.Exec(q,
+
+	_, err = s.db.ExecContext(context.Background(), q,
 		r.TS.UTC().Format(time.RFC3339Nano),
 		r.OSUser, identity, r.Cwd, string(argv), string(env),
 		r.Backend, r.BackendPath, r.Mode, shortcut,
@@ -132,6 +145,7 @@ func (s *Store) Insert(r Record) error {
 	if err != nil {
 		return fmt.Errorf("insert audit row: %w", err)
 	}
+
 	return nil
 }
 
@@ -140,5 +154,6 @@ func (s *Store) Close() error {
 	if s.db == nil {
 		return nil
 	}
+
 	return s.db.Close()
 }

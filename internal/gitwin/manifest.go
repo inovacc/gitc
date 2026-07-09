@@ -35,6 +35,7 @@ func ParseManifest(b []byte) (Manifest, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Manifest{}, fmt.Errorf("parse git_release.json: %w", err)
 	}
+
 	return m, nil
 }
 
@@ -49,6 +50,7 @@ func (m Manifest) For(goos, goarch string) (ManifestAsset, bool) {
 // is already present there, it is returned without re-downloading.
 func (m Manifest) EnsurePinned(ctx context.Context, a ManifestAsset, baseDir string) (string, error) {
 	dest := filepath.Join(baseDir, sanitizeTag(m.Version))
+
 	gitExe := filepath.Join(dest, "cmd", "git.exe")
 	if _, err := os.Stat(gitExe); err == nil {
 		return gitExe, nil
@@ -58,17 +60,21 @@ func (m Manifest) EnsurePinned(ctx context.Context, a ManifestAsset, baseDir str
 	if err := Download(ctx, a.URL, tmp); err != nil {
 		return "", err
 	}
+
 	defer func() { _ = os.Remove(tmp) }()
 
 	if err := verifySHA256(tmp, a.SHA256); err != nil {
 		return "", err
 	}
+
 	if err := Unzip(tmp, dest); err != nil {
 		return "", err
 	}
+
 	if _, err := os.Stat(gitExe); err != nil {
 		return "", fmt.Errorf("unpacked MinGit but %s is missing: %w", gitExe, err)
 	}
+
 	return gitExe, nil
 }
 
@@ -77,18 +83,23 @@ func verifySHA256(file, want string) error {
 	if want == "" {
 		return fmt.Errorf("no sha256 pinned for asset")
 	}
+
 	f, err := os.Open(file)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = f.Close() }()
+
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return err
 	}
+
 	got := hex.EncodeToString(h.Sum(nil))
 	if !strings.EqualFold(got, want) {
 		return fmt.Errorf("sha256 mismatch: got %s, want %s", got, want)
 	}
+
 	return nil
 }

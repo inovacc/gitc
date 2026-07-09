@@ -28,6 +28,7 @@ func FilterFiles(commit *Commit, spec *PathSpec) error {
 		if !keep {
 			continue
 		}
+
 		change.Path = newName
 		key := string(newName)
 
@@ -45,6 +46,7 @@ func FilterFiles(commit *Commit, spec *PathSpec) error {
 			}
 			// existing is a deletion that this change supersedes; fall through.
 		}
+
 		result[key] = change
 	}
 
@@ -52,13 +54,16 @@ func FilterFiles(commit *Commit, spec *PathSpec) error {
 	for k := range result {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys) // byte-lexicographic order, matching the original sort
 
 	changes := make([]*FileChange, 0, len(keys))
 	for _, k := range keys {
 		changes = append(changes, result[k])
 	}
+
 	commit.FileChanges = changes
+
 	return nil
 }
 

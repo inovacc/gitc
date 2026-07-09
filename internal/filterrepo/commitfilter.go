@@ -89,10 +89,13 @@ func (cf *CommitFilter) Tweak(commit *Commit, hadFileChanges bool) (keep bool) {
 		if len(newParents) > 0 {
 			survivor = newParents[0]
 		}
+
 		cf.prunedTo[commit.Mark] = survivor
 		commit.Skip()
+
 		return false
 	}
+
 	return true
 }
 
@@ -104,11 +107,13 @@ func origParents(commit *Commit) []Ref {
 	if !commit.From.IsZero() {
 		out = append(out, commit.From)
 	}
+
 	for _, m := range commit.Merges {
 		if !m.IsZero() {
 			out = append(out, m)
 		}
 	}
+
 	return out
 }
 
@@ -118,20 +123,27 @@ func origParents(commit *Commit) []Ref {
 // the original is preserved (e.g. an intentional no-ff merge).
 func (cf *CommitFilter) resolveParents(orig []Ref) []Ref {
 	var out []Ref
+
 	seen := make(map[string]bool)
+
 	for _, r := range orig {
 		rr, drop := cf.resolve(r)
 		if drop {
 			continue
 		}
+
 		key := refKey(rr)
+
 		rewritten := cf.isPruned(r)
 		if seen[key] && rewritten {
 			continue
 		}
+
 		seen[key] = true
+
 		out = append(out, rr)
 	}
+
 	return out
 }
 
@@ -144,9 +156,11 @@ func (cf *CommitFilter) resolve(r Ref) (Ref, bool) {
 			if s.IsZero() {
 				return Ref{}, true
 			}
+
 			return s, false
 		}
 	}
+
 	return r, false
 }
 
@@ -155,7 +169,9 @@ func (cf *CommitFilter) isPruned(r Ref) bool {
 	if r.Mark == 0 {
 		return false
 	}
+
 	_, ok := cf.prunedTo[r.Mark]
+
 	return ok
 }
 
@@ -165,8 +181,10 @@ func setParents(commit *Commit, parents []Ref) {
 	if len(parents) == 0 {
 		commit.From = Ref{}
 		commit.Merges = nil
+
 		return
 	}
+
 	commit.From = parents[0]
 	if len(parents) > 1 {
 		commit.Merges = append([]Ref(nil), parents[1:]...)
@@ -201,8 +219,10 @@ func (cf *CommitFilter) shouldPrune(commit *Commit, orig, newParents []Ref, hadF
 		if !becameEmpty {
 			return false
 		}
+
 		hadParentsPruned := len(newParents) < len(orig) ||
 			(len(orig) == 1 && cf.isPruned(orig[0]))
+
 		return hadParentsPruned
 	}
 
@@ -222,5 +242,6 @@ func refKey(r Ref) string {
 	if r.Mark != 0 {
 		return "m" + strconv.Itoa(r.Mark)
 	}
+
 	return "o" + string(r.OID)
 }

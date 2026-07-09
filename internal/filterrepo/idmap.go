@@ -31,6 +31,7 @@ func NewIDMap() *IDMap {
 func (m *IDMap) New() int {
 	id := m.nextID
 	m.nextID++
+
 	return id
 }
 
@@ -47,6 +48,7 @@ func (m *IDMap) RecordRename(oldID, newID int) {
 			return
 		}
 	}
+
 	m.translation[oldID] = newID
 	m.reverse[newID] = append(m.reverse[newID], oldID)
 }
@@ -58,5 +60,6 @@ func (m *IDMap) Translate(oldID int) (int, bool) {
 	if v, ok := m.translation[oldID]; ok {
 		return v, v != MarkNone
 	}
+
 	return oldID, true
 }

@@ -21,21 +21,28 @@ func Decode(b []byte) string {
 	if utf8.Valid(b) {
 		return string(b)
 	}
+
 	var sb strings.Builder
+
 	for i := 0; i < len(b); {
 		r, size := utf8.DecodeRune(b[i:])
 		if r == utf8.RuneError && size == 1 {
 			// Emit the raw byte as \xNN, matching a backslashreplace policy.
 			const hex = "0123456789abcdef"
+
 			sb.WriteString("\\x")
 			sb.WriteByte(hex[b[i]>>4])
 			sb.WriteByte(hex[b[i]&0xf])
 			i++
+
 			continue
 		}
+
 		sb.WriteRune(r)
+
 		i += size
 	}
+
 	return sb.String()
 }
 
@@ -48,10 +55,12 @@ func Decode(b []byte) string {
 func GlobToRegex(glob []byte) []byte {
 	var sb strings.Builder
 	sb.WriteString(`(?s)\A`)
+
 	i, n := 0, len(glob)
 	for i < n {
 		c := glob[i]
 		i++
+
 		switch c {
 		case '*':
 			sb.WriteString(".*")
@@ -62,27 +71,35 @@ func GlobToRegex(glob []byte) []byte {
 			if j < n && (glob[j] == '!' || glob[j] == '^') {
 				j++
 			}
+
 			if j < n && glob[j] == ']' {
 				j++
 			}
+
 			for j < n && glob[j] != ']' {
 				j++
 			}
+
 			if j >= n {
 				// No closing bracket: treat '[' as a literal.
 				sb.WriteString(`\[`)
 				continue
 			}
+
 			stuff := glob[i:j]
 			i = j + 1
+
 			sb.WriteByte('[')
+
 			switch {
 			case len(stuff) > 0 && stuff[0] == '!':
 				sb.WriteByte('^')
+
 				stuff = stuff[1:]
 			case len(stuff) > 0 && stuff[0] == '^':
 				sb.WriteByte('\\')
 			}
+
 			for _, b := range stuff {
 				if b == '\\' {
 					sb.WriteString(`\\`)
@@ -90,12 +107,15 @@ func GlobToRegex(glob []byte) []byte {
 					sb.WriteByte(b)
 				}
 			}
+
 			sb.WriteByte(']')
 		default:
 			sb.WriteString(escapeRegexByte(c))
 		}
 	}
+
 	sb.WriteString(`\z`)
+
 	return []byte(sb.String())
 }
 
@@ -106,5 +126,6 @@ func escapeRegexByte(c byte) string {
 	case '\\', '.', '+', '*', '?', '(', ')', '|', '[', ']', '{', '}', '^', '$':
 		return "\\" + string(c)
 	}
+
 	return string(c)
 }

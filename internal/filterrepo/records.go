@@ -26,7 +26,9 @@ func (r Ref) write(w io.Writer) error {
 		_, err := io.WriteString(w, ":"+strconv.Itoa(r.Mark))
 		return err
 	}
+
 	_, err := w.Write(r.OID)
+
 	return err
 }
 
@@ -79,12 +81,15 @@ func (fc *FileChange) Dump(w io.Writer) error {
 		if fc.Blob.IsZero() {
 			return nil // skipped blob
 		}
+
 		if err := writeAll(w, []byte("M "), fc.Mode, []byte(" ")); err != nil {
 			return err
 		}
+
 		if err := fc.Blob.write(w); err != nil {
 			return err
 		}
+
 		return writeAll(w, []byte(" "), pathQuoter.Enquote(fc.Path), []byte("\n"))
 	case FileDelete:
 		return writeAll(w, []byte("D "), pathQuoter.Enquote(fc.Path), []byte("\n"))
@@ -93,6 +98,7 @@ func (fc *FileChange) Dump(w io.Writer) error {
 		if fc.Type == FileCopy {
 			verb = []byte("C ")
 		}
+
 		return writeAll(w, verb,
 			pathQuoter.Enquote(fc.OrigPath), []byte(" "),
 			pathQuoter.Enquote(fc.Path), []byte("\n"))
@@ -117,12 +123,15 @@ type Blob struct {
 // change resulting object content).
 func (b *Blob) Dump(w io.Writer) error {
 	b.markDumped()
+
 	if err := writeAll(w, []byte("blob\nmark :"), []byte(strconv.Itoa(b.Mark)), []byte("\n")); err != nil {
 		return err
 	}
+
 	if err := writeAll(w, []byte("data "), []byte(strconv.Itoa(len(b.Data))), []byte("\n")); err != nil {
 		return err
 	}
+
 	return writeAll(w, b.Data, []byte("\n"))
 }
 
@@ -136,18 +145,23 @@ type Reset struct {
 // Dump writes the reset in fast-import syntax.
 func (r *Reset) Dump(w io.Writer) error {
 	r.markDumped()
+
 	if err := writeAll(w, []byte("reset "), r.Ref, []byte("\n")); err != nil {
 		return err
 	}
+
 	if !r.From.IsZero() {
 		if err := writeAll(w, []byte("from ")); err != nil {
 			return err
 		}
+
 		if err := r.From.write(w); err != nil {
 			return err
 		}
+
 		return writeAll(w, []byte("\n\n"))
 	}
+
 	return nil
 }
 
@@ -166,12 +180,13 @@ type Commit struct {
 	FileChanges []*FileChange
 }
 
+//nolint:funcorder // small predicate kept beside its use
 func (c *Commit) hasParents() bool { return !c.From.IsZero() || len(c.Merges) > 0 }
 
 // Dump writes the commit in fast-import syntax, reproducing fast-export's
 // cosmetic trailing-newline conventions so that the resulting stream imports
 // cleanly.
-func (c *Commit) Dump(w io.Writer) error {
+func (c *Commit) Dump(w io.Writer) error { //nolint:funlen // cohesive commit serializer
 	c.markDumped()
 
 	hasParents := c.hasParents()
@@ -182,16 +197,20 @@ func (c *Commit) Dump(w io.Writer) error {
 			return err
 		}
 	}
+
 	if err := writeAll(w, []byte("commit "), c.Branch, []byte("\nmark :"),
 		[]byte(strconv.Itoa(c.Mark)), []byte("\n")); err != nil {
 		return err
 	}
+
 	if err := writeUser(w, "author ", c.Author); err != nil {
 		return err
 	}
+
 	if err := writeUser(w, "committer ", c.Committer); err != nil {
 		return err
 	}
+
 	if len(c.Encoding) > 0 {
 		if err := writeAll(w, []byte("encoding "), c.Encoding, []byte("\n")); err != nil {
 			return err
@@ -199,13 +218,12 @@ func (c *Commit) Dump(w io.Writer) error {
 	}
 
 	// data <len>\n<message>[extra newline]
-	extraNewline := true
-	if bytes.HasSuffix(c.Message, []byte("\n")) || (!hasParents && len(c.FileChanges) == 0) {
-		extraNewline = false
-	}
+	extraNewline := !bytes.HasSuffix(c.Message, []byte("\n")) && (hasParents || len(c.FileChanges) > 0)
+
 	if err := writeAll(w, []byte("data "), []byte(strconv.Itoa(len(c.Message))), []byte("\n"), c.Message); err != nil {
 		return err
 	}
+
 	if extraNewline {
 		if err := writeAll(w, []byte("\n")); err != nil {
 			return err
@@ -217,20 +235,25 @@ func (c *Commit) Dump(w io.Writer) error {
 		if err := writeAll(w, []byte("from ")); err != nil {
 			return err
 		}
+
 		if err := c.From.write(w); err != nil {
 			return err
 		}
+
 		if err := writeAll(w, []byte("\n")); err != nil {
 			return err
 		}
 	}
+
 	for _, m := range c.Merges {
 		if err := writeAll(w, []byte("merge ")); err != nil {
 			return err
 		}
+
 		if err := m.write(w); err != nil {
 			return err
 		}
+
 		if err := writeAll(w, []byte("\n")); err != nil {
 			return err
 		}
@@ -248,6 +271,7 @@ func (c *Commit) Dump(w io.Writer) error {
 			return err
 		}
 	}
+
 	return writeAll(w, []byte("\n"))
 }
 
@@ -265,32 +289,40 @@ type Tag struct {
 // Dump writes the tag in fast-import syntax.
 func (t *Tag) Dump(w io.Writer) error {
 	t.markDumped()
+
 	if err := writeAll(w, []byte("tag "), t.Ref, []byte("\n")); err != nil {
 		return err
 	}
+
 	if t.Mark > 0 {
 		if err := writeAll(w, []byte("mark :"), []byte(strconv.Itoa(t.Mark)), []byte("\n")); err != nil {
 			return err
 		}
 	}
+
 	if err := writeAll(w, []byte("from ")); err != nil {
 		return err
 	}
+
 	if err := t.From.write(w); err != nil {
 		return err
 	}
+
 	if err := writeAll(w, []byte("\n")); err != nil {
 		return err
 	}
+
 	if len(t.Tagger.Name) > 0 {
 		if err := writeAll(w, []byte("tagger "), t.Tagger.Name, []byte(" <"),
 			t.Tagger.Email, []byte("> "), t.Tagger.Date, []byte("\n")); err != nil {
 			return err
 		}
 	}
+
 	if err := writeAll(w, []byte("data "), []byte(strconv.Itoa(len(t.Message))), []byte("\n"), t.Message); err != nil {
 		return err
 	}
+
 	return writeAll(w, []byte("\n"))
 }
 
@@ -341,9 +373,11 @@ func writeAll(w io.Writer, chunks ...[]byte) error {
 		if len(c) == 0 {
 			continue
 		}
+
 		if _, err := w.Write(c); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }

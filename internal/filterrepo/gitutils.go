@@ -2,6 +2,7 @@ package filterrepo
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -47,6 +48,7 @@ func (e *gitError) Error() string {
 	if msg == "" {
 		return fmt.Sprintf("git %s: %v", strings.Join(e.args, " "), e.err)
 	}
+
 	return fmt.Sprintf("git %s: %v: %s", strings.Join(e.args, " "), e.err, msg)
 }
 
@@ -58,14 +60,19 @@ func gitOutput(gitBin, dir string, args ...string) (string, error) {
 	if gitBin == "" {
 		gitBin = DefaultGitBinary
 	}
+
 	full := append([]string{"-C", dir}, args...)
-	cmd := exec.Command(gitBin, full...)
+	cmd := exec.CommandContext(context.Background(), gitBin, full...)
+
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
+
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return "", &gitError{args: full, stderr: stderr.String(), err: err}
 	}
+
 	return strings.TrimRight(stdout.String(), "\r\n \t"), nil
 }
 
@@ -77,18 +84,24 @@ func gitExitCode(gitBin, dir string, args ...string) (int, error) {
 	if gitBin == "" {
 		gitBin = DefaultGitBinary
 	}
+
 	full := append([]string{"-C", dir}, args...)
-	cmd := exec.Command(gitBin, full...)
+	cmd := exec.CommandContext(context.Background(), gitBin, full...)
+
 	var stderr bytes.Buffer
+
 	cmd.Stderr = &stderr
+
 	err := cmd.Run()
 	if err == nil {
 		return 0, nil
 	}
+
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode(), nil
 	}
+
 	return -1, &gitError{args: full, stderr: stderr.String(), err: err}
 }
 
@@ -99,10 +112,12 @@ func RepoLayout(gitBin, dir string) (RepoInfo, error) {
 	if err != nil {
 		return RepoInfo{}, err
 	}
+
 	gitDir, err := gitOutput(gitBin, dir, "rev-parse", "--git-dir")
 	if err != nil {
 		return RepoInfo{}, err
 	}
+
 	return RepoInfo{GitDir: gitDir, Bare: bare == "true"}, nil
 }
 
@@ -113,16 +128,20 @@ func CountObjects(gitBin, dir string) (ObjectCounts, error) {
 	if err != nil {
 		return ObjectCounts{}, err
 	}
+
 	var counts ObjectCounts
+
 	for _, line := range strings.Split(out, "\n") {
 		key, val, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
+
 		n, convErr := strconv.Atoi(strings.TrimSpace(val))
 		if convErr != nil {
 			continue
 		}
+
 		switch strings.TrimSpace(key) {
 		case "count":
 			counts.Count = n
@@ -130,6 +149,7 @@ func CountObjects(gitBin, dir string) (ObjectCounts, error) {
 			counts.Packs = n
 		}
 	}
+
 	return counts, nil
 }
 
@@ -140,9 +160,11 @@ func ListRefs(gitBin, dir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if out == "" {
 		return nil, nil
 	}
+
 	return strings.Split(out, "\n"), nil
 }
 
@@ -153,14 +175,17 @@ func ConfigValue(gitBin, dir, key string) (val string, ok bool, err error) {
 	if cerr != nil {
 		return "", false, cerr
 	}
+
 	if code == 1 {
 		// git config exits 1 when the key is absent.
 		return "", false, nil
 	}
+
 	out, gerr := gitOutput(gitBin, dir, "config", "--get", key)
 	if gerr != nil {
 		return "", false, gerr
 	}
+
 	return out, true, nil
 }
 
@@ -170,8 +195,10 @@ func Remotes(gitBin, dir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if out == "" {
 		return nil, nil
 	}
+
 	return strings.Split(out, "\n"), nil
 }

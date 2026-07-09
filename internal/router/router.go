@@ -55,6 +55,7 @@ func Classify(args []string, shortcuts []shortcut.Shortcut) Decision {
 	if len(args) == 0 {
 		return Decision{Kind: Passthrough}
 	}
+
 	first := args[0]
 
 	// `git gitc ...` forces gitc's namespace (explicit escape + back-compat).

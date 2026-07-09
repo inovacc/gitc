@@ -15,12 +15,15 @@ func ReplaceBlobText(blob *Blob, rules *ReplaceRules) {
 	if blob == nil || rules.Empty() {
 		return
 	}
+
 	if isBinary(blob.Data) {
 		return
 	}
+
 	for _, lit := range rules.Literals {
 		blob.Data = bytes.ReplaceAll(blob.Data, lit.From, lit.To)
 	}
+
 	for _, rr := range rules.Regexes {
 		// The replacement is treated literally; unlike Python's re.sub we do
 		// not expand backreferences in replace-text replacements.
@@ -35,5 +38,6 @@ func isBinary(data []byte) bool {
 	if limit > binaryScanLimit {
 		limit = binaryScanLimit
 	}
+
 	return bytes.IndexByte(data[:limit], 0) >= 0
 }

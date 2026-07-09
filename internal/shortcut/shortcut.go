@@ -59,6 +59,7 @@ func All() []Shortcut {
 				if len(args) > 0 {
 					msg = args[0]
 				}
+
 				return [][]string{
 					{"add", "-A"},
 					{"commit", "-m", msg},

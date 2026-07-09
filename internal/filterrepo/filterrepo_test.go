@@ -12,6 +12,7 @@ import (
 
 func TestPathQuotingDequote(t *testing.T) {
 	var pq PathQuoting
+
 	tests := []struct {
 		name string
 		in   []byte
@@ -36,6 +37,7 @@ func TestPathQuotingDequote(t *testing.T) {
 
 func TestPathQuotingEnquote(t *testing.T) {
 	var pq PathQuoting
+
 	tests := []struct {
 		name string
 		in   []byte
@@ -76,21 +78,28 @@ func TestIDMapTranslate(t *testing.T) {
 	if m.HasRenames() {
 		t.Fatal("new map should have no renames")
 	}
+
 	a, b := m.New(), m.New()
 	if a != 1 || b != 2 {
 		t.Fatalf("New() sequence = %d,%d want 1,2", a, b)
 	}
+
 	m.RecordRename(5, b)
+
 	if got, ok := m.Translate(5); !ok || got != 2 {
 		t.Fatalf("Translate(5) = %d,%v want 2,true", got, ok)
 	}
+
 	if got, ok := m.Translate(9); !ok || got != 9 {
 		t.Fatalf("Translate(9) = %d,%v want 9,true (identity)", got, ok)
 	}
+
 	m.RecordRename(7, MarkNone)
+
 	if got, ok := m.Translate(7); ok || got != MarkNone {
 		t.Fatalf("Translate(7) = %d,%v want none,false", got, ok)
 	}
+
 	if !m.HasRenames() {
 		t.Fatal("map should report renames")
 	}
@@ -101,6 +110,7 @@ func TestGlobToRegexAnchored(t *testing.T) {
 	if !strings.HasPrefix(src, `(?s)\A`) || !strings.HasSuffix(src, `\z`) {
 		t.Fatalf("glob regex not anchored: %q", src)
 	}
+
 	if !strings.Contains(src, ".*") {
 		t.Fatalf("glob '*' not translated to '.*': %q", src)
 	}
@@ -114,6 +124,7 @@ func TestParserInMemory(t *testing.T) {
 	// A blob with an embedded NUL and newline, a root commit referencing it,
 	// and a done marker.
 	binData := []byte{'a', 0x00, 'b', '\n', 'c'}
+
 	var in bytes.Buffer
 	in.WriteString("blob\n")
 	in.WriteString("mark :1\n")
@@ -132,6 +143,7 @@ func TestParserInMemory(t *testing.T) {
 	in.WriteString("done\n")
 
 	p := NewFastExportParser()
+
 	var out bytes.Buffer
 	if err := p.Run(bytes.NewReader(in.Bytes()), &out, Callbacks{}); err != nil {
 		t.Fatalf("parser Run: %v", err)
@@ -142,15 +154,19 @@ func TestParserInMemory(t *testing.T) {
 	if !bytes.Contains(got, binData) {
 		t.Fatalf("blob payload not preserved verbatim in output:\n%q", got)
 	}
+
 	if !bytes.Contains(got, []byte("M 100644 :1 bin.dat\n")) {
 		t.Fatalf("filechange not preserved:\n%q", got)
 	}
+
 	if !bytes.Contains(got, []byte("data 6\nhello\n")) {
 		t.Fatalf("commit message not preserved:\n%q", got)
 	}
+
 	if !bytes.Contains(got, []byte("done\n")) {
 		t.Fatalf("done marker not preserved:\n%q", got)
 	}
+
 	if want := []string{"refs/heads/main"}; !equalStrings(p.ExportedRefs(), want) {
 		t.Fatalf("ExportedRefs = %v want %v", p.ExportedRefs(), want)
 	}
@@ -160,11 +176,13 @@ func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	for i := range a {
 		if a[i] != b[i] {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -206,6 +224,7 @@ func TestFastExportRoundTrip(t *testing.T) {
 		"--tag-of-filtered-object=rewrite", "--fake-missing-tagger",
 		"--use-done-feature", "--all",
 	}
+
 	stream := runGit(t, git, src, exportArgs...)
 	if len(stream) == 0 {
 		t.Fatal("empty fast-export stream")
@@ -213,6 +232,7 @@ func TestFastExportRoundTrip(t *testing.T) {
 
 	// Pipe through the codec with no filtering.
 	p := NewFastExportParser()
+
 	var rewritten bytes.Buffer
 	if err := p.Run(bytes.NewReader(stream), &rewritten, Callbacks{}); err != nil {
 		t.Fatalf("parser Run: %v", err)
@@ -223,6 +243,7 @@ func TestFastExportRoundTrip(t *testing.T) {
 	runGit(t, git, dst, "-c", "init.defaultBranch=main", "init", "-q")
 	importCmd := exec.Command(git, "fast-import", "--force", "--quiet")
 	importCmd.Dir = dst
+
 	importCmd.Stdin = bytes.NewReader(rewritten.Bytes())
 	if out, err := importCmd.CombinedOutput(); err != nil {
 		t.Fatalf("fast-import failed: %v\n%s", err, out)
@@ -230,6 +251,7 @@ func TestFastExportRoundTrip(t *testing.T) {
 
 	// Compare commit counts.
 	srcCount := strings.TrimSpace(string(runGit(t, git, src, "rev-list", "--count", "--all")))
+
 	dstCount := strings.TrimSpace(string(runGit(t, git, dst, "rev-list", "--count", "--all")))
 	if srcCount != dstCount {
 		t.Fatalf("commit count mismatch: src=%s dst=%s", srcCount, dstCount)
@@ -238,6 +260,7 @@ func TestFastExportRoundTrip(t *testing.T) {
 	// Compare the multiset of tree hashes (content-addressed; identical content
 	// yields identical tree SHAs regardless of commit metadata differences).
 	srcTrees := treeHashes(t, git, src)
+
 	dstTrees := treeHashes(t, git, dst)
 	if !equalStrings(srcTrees, dstTrees) {
 		t.Fatalf("tree hash mismatch:\n src=%v\n dst=%v", srcTrees, dstTrees)
@@ -245,6 +268,7 @@ func TestFastExportRoundTrip(t *testing.T) {
 
 	// The main branch head tree must match exactly.
 	srcHead := strings.TrimSpace(string(runGit(t, git, src, "rev-parse", "HEAD^{tree}")))
+
 	dstHead := strings.TrimSpace(string(runGit(t, git, dst, "rev-parse", "main^{tree}")))
 	if srcHead != dstHead {
 		t.Fatalf("HEAD tree mismatch: src=%s dst=%s", srcHead, dstHead)
@@ -256,29 +280,36 @@ func treeHashes(t *testing.T, git, dir string) []string {
 	out := runGit(t, git, dir, "log", "--all", "--format=%T")
 	lines := strings.Fields(strings.TrimSpace(string(out)))
 	sort.Strings(lines)
+
 	return lines
 }
 
 func runGit(t *testing.T, git, dir string, args ...string) []byte {
 	t.Helper()
+
 	cmd := exec.Command(git, args...)
 	cmd.Dir = dir
+
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			t.Fatalf("git %v failed: %v\n%s", args, err, ee.Stderr)
 		}
+
 		t.Fatalf("git %v failed: %v", args, err)
 	}
+
 	return out
 }
 
 func writeFile(t *testing.T, dir, name string, data []byte) {
 	t.Helper()
+
 	full := filepath.Join(dir, name)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(full, data, 0o644); err != nil {
 		t.Fatal(err)
 	}

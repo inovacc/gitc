@@ -50,9 +50,11 @@ func Resolve(managedPath, selfPath string) (Backend, error) {
 			return Backend{Kind: KindManaged, Path: abs}, nil
 		}
 	}
+
 	if p, ok := findSystemGit(selfPath); ok {
 		return Backend{Kind: KindSystem, Path: p}, nil
 	}
+
 	return Backend{}, ErrNoBackend
 }
 
@@ -63,10 +65,12 @@ func findSystemGit(selfPath string) (string, bool) {
 	if runtime.GOOS == "windows" {
 		names = []string{"git.exe", "git.cmd", "git"}
 	}
+
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir == "" {
 			continue
 		}
+
 		for _, name := range names {
 			cand := filepath.Join(dir, name)
 			if abs, ok := usableBinary(cand, selfPath); ok {
@@ -74,6 +78,7 @@ func findSystemGit(selfPath string) (string, bool) {
 			}
 		}
 	}
+
 	return "", false
 }
 
@@ -84,16 +89,20 @@ func usableBinary(cand, selfPath string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = resolved
 	}
+
 	info, err := os.Stat(abs)
 	if err != nil || info.IsDir() {
 		return "", false
 	}
+
 	if sameFile(abs, selfPath) {
 		return "", false
 	}
+
 	return abs, true
 }
 
@@ -104,13 +113,16 @@ func sameFile(a, b string) bool {
 	if b == "" {
 		return false
 	}
+
 	ra, rb := a, b
 	if r, err := filepath.EvalSymlinks(a); err == nil {
 		ra = r
 	}
+
 	if r, err := filepath.EvalSymlinks(b); err == nil {
 		rb = r
 	}
+
 	if runtime.GOOS == "windows" {
 		if strings.EqualFold(ra, rb) {
 			return true
@@ -118,11 +130,13 @@ func sameFile(a, b string) bool {
 	} else if ra == rb {
 		return true
 	}
+
 	if ia, err := os.Stat(ra); err == nil {
 		if ib, err := os.Stat(rb); err == nil {
 			return os.SameFile(ia, ib)
 		}
 	}
+
 	return false
 }
 
@@ -134,10 +148,12 @@ func (b Backend) SupportsInitialBranch(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
+
 	major, minor, ok := parseGitVersion(string(out))
 	if !ok {
 		return false
 	}
+
 	return major > 2 || (major == 2 && minor >= 28)
 }
 
@@ -147,18 +163,22 @@ func parseGitVersion(s string) (major, minor int, ok bool) {
 	if len(fields) < 3 {
 		return 0, 0, false
 	}
+
 	parts := strings.SplitN(fields[2], ".", 3)
 	if len(parts) < 2 {
 		return 0, 0, false
 	}
+
 	major, err := strconv.Atoi(parts[0])
 	if err != nil {
 		return 0, 0, false
 	}
+
 	minor, err = strconv.Atoi(parts[1])
 	if err != nil {
 		return 0, 0, false
 	}
+
 	return major, minor, true
 }
 
@@ -185,8 +205,10 @@ func (b Backend) Run(ctx context.Context, args []string) (Result, error) {
 	if errors.As(err, &exitErr) {
 		return Result{ExitCode: exitErr.ExitCode(), Duration: dur}, nil
 	}
+
 	if err != nil {
 		return Result{ExitCode: -1, Duration: dur}, fmt.Errorf("exec git backend: %w", err)
 	}
+
 	return Result{ExitCode: 0, Duration: dur}, nil
 }

@@ -46,14 +46,17 @@ func New(b backend.Backend, s *store.Store, e enrich.Enricher, warn io.Writer) *
 	if warn == nil {
 		warn = os.Stderr
 	}
+
 	if e == nil {
 		e = enrich.Noop()
 	}
+
 	r := &Runner{backend: b, store: s, enricher: e, warn: warn}
 	if u, err := user.Current(); err == nil {
 		r.osUser = u.Username
 		r.identity = u.Name
 	}
+
 	return r
 }
 
@@ -72,12 +75,15 @@ func (r *Runner) Shortcut(ctx context.Context, sc shortcut.Shortcut, args []stri
 		if usage == "" {
 			usage = sc.Name
 		}
+
 		fmt.Fprintf(r.warn, "gitc: usage: gitc %s\n", usage)
+
 		return 2
 	}
 
 	start := time.Now()
 	last := 0
+
 	steps := sc.Steps(args)
 	for _, step := range steps {
 		last = r.execAndAudit(ctx, step, "passthrough", "")
@@ -93,6 +99,7 @@ func (r *Runner) Shortcut(ctx context.Context, sc shortcut.Shortcut, args []stri
 	rec.ExitCode = last
 	rec.Duration = time.Since(start)
 	r.writeAudit(rec)
+
 	return last
 }
 
@@ -104,6 +111,7 @@ func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcut
 	res, err := r.backend.Run(ctx, args)
 	rec.ExitCode = res.ExitCode
 	rec.Duration = res.Duration
+
 	if err != nil {
 		fmt.Fprintf(r.warn, "gitc: %v\n", err)
 	}
@@ -113,11 +121,13 @@ func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcut
 	}
 
 	r.writeAudit(rec)
+
 	return res.ExitCode
 }
 
 func (r *Runner) baseRecord(args []string, mode, shortcutName string) store.Record {
 	cwd, _ := os.Getwd()
+
 	return store.Record{
 		OSUser:      r.osUser,
 		Identity:    r.identity,
@@ -136,6 +146,7 @@ func (r *Runner) writeAudit(rec store.Record) {
 		fmt.Fprintln(r.warn, "gitc: audit log unavailable; invocation not recorded")
 		return
 	}
+
 	if err := r.store.Insert(rec); err != nil {
 		fmt.Fprintf(r.warn, "gitc: audit write failed: %v\n", err)
 	}
@@ -144,16 +155,19 @@ func (r *Runner) writeAudit(rec store.Record) {
 // captureEnv returns the git-relevant environment subset with raw values.
 func captureEnv() map[string]string {
 	out := make(map[string]string)
+
 	for _, kv := range os.Environ() {
 		eq := strings.IndexByte(kv, '=')
 		if eq < 0 {
 			continue
 		}
+
 		key, val := kv[:eq], kv[eq+1:]
 		if matchEnv(key) {
 			out[key] = val
 		}
 	}
+
 	return out
 }
 
@@ -163,10 +177,12 @@ func matchEnv(key string) bool {
 			return true
 		}
 	}
+
 	for _, prefix := range envCapturePrefix {
 		if strings.HasPrefix(key, prefix) {
 			return true
 		}
 	}
+
 	return false
 }
