@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:001 -->
+<!-- rev:002 -->
 
 Version milestones for gitc. Coverage figures are total statement coverage at
 the time of the milestone (`go test -cover ./...`).
@@ -29,16 +29,31 @@ The forensic git proxy and its command surface.
 - **Go 1.26.5** (clears CVE GO-2026-5856); shim self-overwrite fix.
 - Coverage: **43.9%**.
 
-## v0.3.0 — Hard gates (next)
+## v0.3.0 — Hard gates + managed-update architecture ✅
 
-Turn the audit + scan + scrub building blocks into *enforcement* — the core
-leak-prevention mission (see [ROADMAP.md](ROADMAP.md), tasks in
-[IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md)).
+The audit + scan + scrub building blocks became *enforcement* — the core
+leak-prevention mission — alongside a verified self-update architecture.
 
-- [ ] Pre-push / pre-commit secret gate — **block** (not warn) on detection.
-- [ ] Remote allow-listing — block push/fetch/clone to unapproved hosts.
-- [ ] Machine/org policy file the agent can't override.
-- [ ] `git scan --audit` — scan the audit DB's captured argv/env.
-- [ ] Tamper-evident (hash-chained) audit log.
-- [ ] Coverage target: **≥ 70%** (raise the 0%-covered packages: installer,
-      paths, runner, shortcut, main).
+- **Enforcement gates** (`policy.json`, read-only, agent can't override):
+  block-on-secret gate for `commit`/`push`; remote allow-listing for
+  `push`/`fetch`/`clone`/`pull`/`remote`.
+- **Audit integrity**: tamper-evident hash chain (`git audit --verify`);
+  `git scan --audit`; credential redaction in stored argv; compact/`--wide`
+  views; help/version no longer logged.
+- **Managed git + updates (ADR 0005)**: `settings.json` backend resolution;
+  UUIDv7 side-by-side installs with atomic activation + GC; lazy, single-flight,
+  detached background updater (verified pinned channel); sha256-pinned upstream
+  repo URLs (`internal/origin`); pinned MinGit manifest moved into Go source.
+- **Self-management**: `git update` (verified sha256+size self-update),
+  `git doctor`, `git cmdtree`.
+- **Hardening H-01…H-11, H-14**: supply-chain integrity, bounded timeouts,
+  network retry, graceful Ctrl-C, CI race/lint/coverage gate (pinned
+  golangci-lint v2.12.2).
+- Coverage: **42.9%** (target ≥ 70% carried to v0.4.0).
+
+## v0.4.0 — Depth (next)
+
+- [ ] Coverage **≥ 70%** — `runner`, `installer`, `shortcut`, `main` are thin.
+- [ ] Secret-gate severity threshold (warn vs block per finding).
+- [ ] Remote allowlist for **named remotes** (resolve `git push origin`).
+- [ ] Deferred hardening: context threading (H-12/H-13), `gitwin` download retry.

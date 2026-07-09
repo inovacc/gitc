@@ -121,6 +121,12 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 		cmd = args[0]
 	}
 
+	// `git <cmd> --help` shows that command's usage (from the cmdtree catalog)
+	// rather than falling through to run it.
+	if cmd != "" && cmd != "help" && hasHelpFlag(args[1:]) {
+		return runCmdtree([]string{"-c", cmd})
+	}
+
 	switch cmd {
 	case "", "help":
 		printSelfInfo()
@@ -374,6 +380,17 @@ func runUpdate(ctx context.Context, args []string) int {
 	fmt.Printf("updated to %s: %s\n", info.Latest, self)
 
 	return 0
+}
+
+// hasHelpFlag reports whether args request help for a meta command.
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // runAudit renders the audit log: a compact one-line summary by default, or the
