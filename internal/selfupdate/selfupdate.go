@@ -19,14 +19,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/inovacc/gitc/internal/origin"
 )
 
 // checksumsName is the goreleaser checksums manifest published alongside the
 // release binaries; Apply verifies the downloaded binary against it.
 const checksumsName = "checksums.txt"
-
-// releasesAPI is the GitHub "latest release" endpoint for the gitc repo.
-const releasesAPI = "https://api.github.com/repos/inovacc/gitc/releases/latest"
 
 // httpTimeout bounds both the metadata query and the asset download.
 const httpTimeout = 2 * time.Minute
@@ -169,11 +168,18 @@ func expectedSHA(manifest []byte, name string) (string, bool) {
 	return "", false
 }
 
-// latestRelease fetches and decodes the latest release metadata.
+// latestRelease fetches and decodes the latest release metadata. The endpoint
+// derives from the sha256-pinned gitc repository URL (origin), which is verified
+// before any request is made.
 func latestRelease(ctx context.Context) (ghRelease, error) {
 	var rel ghRelease
 
-	body, err := getBody(ctx, releasesAPI, "application/vnd.github+json")
+	base, err := origin.APIBase(origin.GitcRepo)
+	if err != nil {
+		return rel, err
+	}
+
+	body, err := getBody(ctx, base+"/releases/latest", "application/vnd.github+json")
 	if err != nil {
 		return rel, fmt.Errorf("query releases: %w", err)
 	}

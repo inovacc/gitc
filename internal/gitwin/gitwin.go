@@ -22,10 +22,20 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/inovacc/gitc/internal/origin"
 )
 
-// releasesAPI is the git-for-windows/git releases endpoint.
-const releasesAPI = "https://api.github.com/repos/git-for-windows/git/releases"
+// releasesBase returns the git-for-windows/git releases endpoint, derived from
+// the sha256-pinned repository URL (origin) and verified before every use.
+func releasesBase() (string, error) {
+	base, err := origin.APIBase(origin.GitForWindowsRepo)
+	if err != nil {
+		return "", err
+	}
+
+	return base + "/releases", nil
+}
 
 // Asset is a downloadable release asset.
 type Asset struct {
@@ -62,7 +72,12 @@ func httpDo(ctx context.Context, url string) (*http.Response, error) {
 
 // Latest returns the latest non-prerelease git-for-windows release.
 func Latest(ctx context.Context) (Release, error) {
-	resp, err := httpDo(ctx, releasesAPI+"/latest")
+	base, err := releasesBase()
+	if err != nil {
+		return Release{}, err
+	}
+
+	resp, err := httpDo(ctx, base+"/latest")
 	if err != nil {
 		return Release{}, fmt.Errorf("query latest release: %w", err)
 	}
@@ -87,7 +102,12 @@ func List(ctx context.Context, n int) ([]Release, error) {
 		n = 10
 	}
 
-	resp, err := httpDo(ctx, fmt.Sprintf("%s?per_page=%d", releasesAPI, n))
+	base, err := releasesBase()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := httpDo(ctx, fmt.Sprintf("%s?per_page=%d", base, n))
 	if err != nil {
 		return nil, fmt.Errorf("list releases: %w", err)
 	}
