@@ -1,0 +1,152 @@
+version: "3"
+
+vars:
+  BINARY: gitc
+  MAIN: .
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build all binaries (injects version via -ldflags)
+    cmds:
+      - go build -ldflags "-X main.version={{.VERSION}}" ./...
+
+  run:
+    desc: Run the application (pass args with CLI_ARGS="...")
+    cmds:
+      - go run {{.MAIN}} {{.CLI_ARGS}}
+
+  git:submodule:
+    desc: Add and fetch the upstream git/git source as a pinned submodule
+    cmds:
+      - git submodule add https://github.com/git/git third_party/git
+      - git -C third_party/git checkout v2.55.0
+      - git submodule update --init --recursive
+    status:
+      - test -d third_party/git/.git
+
+  git:build:
+    desc: >-
+      Build the vendored git backend from third_party/git into
+      internal/vendor-build/git/bin (requires a C toolchain + make; MSYS2/MinGW
+      on Windows). Build-time only — the shipped gitc binary needs no C runtime.
+    dir: third_party/git
+    cmds:
+      - make -j prefix="{{.ROOT_DIR}}/internal/vendor-build/git" install
+    preconditions:
+      - sh: command -v make
+        msg: "make not found — install a C toolchain (MSYS2/MinGW on Windows, build-essential on Linux, Xcode CLT on macOS)"
+      - sh: test -d third_party/git
+        msg: "third_party/git missing — run: task git:submodule"
+
+  install:
+    desc: Install to GOPATH/bin (injects version)
+    cmds:
+      - go install -ldflags "-X main.version={{.VERSION}}" ./...
+
+  generate:
+    desc: Run go generate
+    cmds:
+      - go generate ./...
+
+  fmt:
+    desc: Format all Go code
+    cmds:
+      - gofmt -w .
+
+  vet:
+    desc: Run go vet static analysis
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  lint:fix:
+    desc: Run golangci-lint with autofix
+    cmds:
+      - golangci-lint run --fix ./...
+
+  fix:
+    desc: Apply go fix rewrites for deprecated APIs (best-effort)
+    cmds:
+      - cmd: go fix ./...
+        ignore_error: true
+
+  test:
+    desc: Run fast tests
+    cmds:
+      - go test -short ./...
+
+  test:full:
+    desc: Run all tests with race detector and coverage
+    cmds:
+      - go test -race -coverprofile=coverage.out ./...
+
+  test:cover:
+    desc: Show total coverage percentage
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - cmd: "go tool cover -func=coverage.out | grep total:"
+        platforms: [linux, darwin]
+      - cmd: "go tool cover -func=coverage.out | findstr total:"
+        platforms: [windows]
+
+  test:coverage:
+    desc: Generate an HTML coverage report
+    deps: [test:full]
+    cmds:
+      - go tool cover -html=coverage.out -o coverage.html
+
+  check:
+    desc: Run fix, fmt, vet, lint, and tests
+    cmds:
+      - task: fix
+      - task: fmt
+      - task: vet
+      - task: lint
+      - task: test
+
+  deps:
+    desc: Download, tidy, and verify modules
+    cmds:
+      - go mod download
+      - go mod tidy
+      - go mod verify
+
+  deps:upgrade:
+    desc: Upgrade all dependencies to the latest versions
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  release:
+    desc: Release with goreleaser (requires a git tag)
+    deps: [generate]
+    cmds:
+      - goreleaser release --clean
+
+  release:snapshot:
+    desc: Snapshot release (no git tag required)
+    deps: [generate]
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  release:check:
+    desc: Validate the goreleaser config
+    cmds:
+      - goreleaser check
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f gitc gitc.exe coverage.out coverage.html
+      - rm -rf dist/

@@ -1,0 +1,16 @@
+/gitc
+/gitc.exe
+*.out
+dist/
+.idea/
+.vscode/
+
+# Ephemeral command-audit scripts
+/.scripts/
+
+# Vendored git build output (produced by `task git:build`)
+/internal/vendor-build/
+# Local audit databases / scratch
+*.db
+*.db-shm
+*.db-wal

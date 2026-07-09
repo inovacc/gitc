@@ -1,0 +1,155 @@
+// Package backend resolves which real git binary gitc executes and runs it as
+// a transparent passthrough, inheriting stdio and propagating the exit code.
+//
+// gitc ships as `git`/`git.exe` earlier on PATH than any real git, so the
+// resolver must never re-resolve `git` from PATH and exec itself. The
+// self-invocation guard compares each candidate against gitc's own absolute
+// executable path.
+package backend
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+// Kind identifies which backend served an invocation.
+type Kind string
+
+const (
+	// KindVendored is the git built from the third_party/git submodule.
+	KindVendored Kind = "vendored"
+	// KindSystem is a compatible git already installed on PATH.
+	KindSystem Kind = "system"
+)
+
+// ErrNoBackend is returned when neither a vendored build nor a non-self system
+// git can be found.
+var ErrNoBackend = errors.New("no git backend found: build the vendored git (task git:build) or install git on PATH")
+
+// Backend is a resolved git executable ready to exec.
+type Backend struct {
+	Kind Kind
+	Path string // absolute path to the git binary
+}
+
+// Resolve picks a backend, preferring the vendored build at vendoredPath and
+// falling back to the first non-self `git` on PATH. selfPath is gitc's own
+// absolute executable path (from os.Executable); candidates resolving to it
+// are skipped to prevent recursive self-invocation.
+func Resolve(vendoredPath, selfPath string) (Backend, error) {
+	if vendoredPath != "" {
+		if abs, ok := usableBinary(vendoredPath, selfPath); ok {
+			return Backend{Kind: KindVendored, Path: abs}, nil
+		}
+	}
+	if p, ok := findSystemGit(selfPath); ok {
+		return Backend{Kind: KindSystem, Path: p}, nil
+	}
+	return Backend{}, ErrNoBackend
+}
+
+// findSystemGit walks PATH in order and returns the first git executable whose
+// resolved path differs from selfPath.
+func findSystemGit(selfPath string) (string, bool) {
+	names := []string{"git"}
+	if runtime.GOOS == "windows" {
+		names = []string{"git.exe", "git.cmd", "git"}
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		for _, name := range names {
+			cand := filepath.Join(dir, name)
+			if abs, ok := usableBinary(cand, selfPath); ok {
+				return abs, true
+			}
+		}
+	}
+	return "", false
+}
+
+// usableBinary reports whether cand is an executable regular file that is not
+// gitc itself, returning its cleaned absolute path.
+func usableBinary(cand, selfPath string) (string, bool) {
+	abs, err := filepath.Abs(cand)
+	if err != nil {
+		return "", false
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	info, err := os.Stat(abs)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	if sameFile(abs, selfPath) {
+		return "", false
+	}
+	return abs, true
+}
+
+// sameFile reports whether two paths refer to gitc's own binary. It compares
+// resolved absolute paths (case-insensitively on Windows) and, when possible,
+// os.SameFile identity.
+func sameFile(a, b string) bool {
+	if b == "" {
+		return false
+	}
+	ra, rb := a, b
+	if r, err := filepath.EvalSymlinks(a); err == nil {
+		ra = r
+	}
+	if r, err := filepath.EvalSymlinks(b); err == nil {
+		rb = r
+	}
+	if runtime.GOOS == "windows" {
+		if strings.EqualFold(ra, rb) {
+			return true
+		}
+	} else if ra == rb {
+		return true
+	}
+	if ia, err := os.Stat(ra); err == nil {
+		if ib, err := os.Stat(rb); err == nil {
+			return os.SameFile(ia, ib)
+		}
+	}
+	return false
+}
+
+// Result is the outcome of a passthrough exec.
+type Result struct {
+	ExitCode int
+	Duration time.Duration
+}
+
+// Run execs the backend with args, inheriting the process's stdio, and returns
+// the exit code and wall-clock duration. A non-zero git exit is reported via
+// Result, not err; err is reserved for failures to start the process.
+func (b Backend) Run(ctx context.Context, args []string) (Result, error) {
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, b.Path, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	dur := time.Since(start)
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return Result{ExitCode: exitErr.ExitCode(), Duration: dur}, nil
+	}
+	if err != nil {
+		return Result{ExitCode: -1, Duration: dur}, fmt.Errorf("exec git backend: %w", err)
+	}
+	return Result{ExitCode: 0, Duration: dur}, nil
+}
