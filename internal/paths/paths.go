@@ -81,10 +81,25 @@ func ShimGitPath() string {
 	return filepath.Join(ShimDir(), name)
 }
 
-// GitCacheDir returns the directory where downloaded MinGit distributions are
-// unpacked, one subdirectory per release tag.
+// GitCacheDir returns the LEGACY directory where downloaded MinGit
+// distributions were unpacked, one subdirectory per release tag. New installs
+// use AppDir (ADR 0005); this remains for resolving and migrating older installs.
 func GitCacheDir() string {
 	return filepath.Join(DataDir(), "git")
+}
+
+// AppDir returns the directory holding UUID-namespaced managed-git installs,
+// one per download: app/<uuidv7>/<version>/ (ADR 0005). Naming each install
+// with a fresh UUID means a new download never touches the in-use install, and
+// settings.json's backend pointer selects the active one.
+func AppDir() string {
+	return filepath.Join(DataDir(), "app")
+}
+
+// SettingsPath returns the path to settings.json, gitc's on-disk source of
+// truth for the active backend pointer and the update policy (ADR 0005).
+func SettingsPath() string {
+	return filepath.Join(DataDir(), "settings.json")
 }
 
 // ManagedGitPath returns the path to the newest downloaded MinGit git binary
