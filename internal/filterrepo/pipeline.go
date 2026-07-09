@@ -59,7 +59,7 @@ var fastExportFlags = []string{
 // streams `git fast-export` through the codec+transform callbacks into `git
 // fast-import`, and finally runs Cleanup on success. On DryRun the import stream
 // is discarded and the repository is left untouched.
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) error { //nolint:funlen // export|transform|import orchestration
 	gitBin := opts.GitBin
 	if gitBin == "" {
 		gitBin = DefaultGitBinary
@@ -82,8 +82,11 @@ func Run(ctx context.Context, opts Options) error {
 	exportArgs := append([]string{"-C", opts.RepoDir}, fastExportFlags...)
 	exportArgs = append(exportArgs, refs...)
 	exportCmd := exec.CommandContext(ctx, gitBin, exportArgs...)
+
 	var exportErr bytes.Buffer
+
 	exportCmd.Stderr = &exportErr
+
 	exportOut, err := exportCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("filterrepo: fast-export stdout pipe: %w", err)
@@ -94,24 +97,28 @@ func Run(ctx context.Context, opts Options) error {
 		importCmd *exec.Cmd
 		importIn  io.WriteCloser
 		importErr bytes.Buffer
-		output    io.Writer = io.Discard
+		output    = io.Discard
 	)
+
 	if !opts.DryRun {
 		importCmd = exec.CommandContext(ctx, gitBin,
 			"-C", opts.RepoDir, "-c", "core.ignorecase=false",
 			"fast-import", "--force", "--quiet")
 		importCmd.Stderr = &importErr
 		importCmd.Stdout = io.Discard
+
 		importIn, err = importCmd.StdinPipe()
 		if err != nil {
 			return fmt.Errorf("filterrepo: fast-import stdin pipe: %w", err)
 		}
+
 		output = importIn
 	}
 
 	if err := exportCmd.Start(); err != nil {
 		return fmt.Errorf("filterrepo: starting fast-export: %w", err)
 	}
+
 	if importCmd != nil {
 		if err := importCmd.Start(); err != nil {
 			_ = exportCmd.Wait()
@@ -132,6 +139,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	waitExport := exportCmd.Wait()
+
 	var waitImport error
 	if importCmd != nil {
 		waitImport = importCmd.Wait()
@@ -145,9 +153,11 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.DryRun {
 		return nil
 	}
+
 	if err := cleanup(gitBin, opts.RepoDir, layout.Bare); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -158,6 +168,7 @@ func buildCallbacks(parser *FastExportParser, opts Options) (Callbacks, *error) 
 	ids := parser.IDs()
 	cf := NewCommitFilter(opts.Prune, ids)
 	rules := opts.ReplaceText
+
 	var cbErr error
 
 	cb := Callbacks{}
@@ -166,6 +177,7 @@ func buildCallbacks(parser *FastExportParser, opts Options) (Callbacks, *error) 
 			ReplaceBlobText(b, rules)
 		}
 	}
+
 	cb.Commit = func(c *Commit) {
 		if cbErr != nil {
 			c.Skip()
@@ -177,12 +189,16 @@ func buildCallbacks(parser *FastExportParser, opts Options) (Callbacks, *error) 
 		if opts.Paths != nil {
 			if err := FilterFiles(c, opts.Paths); err != nil {
 				cbErr = fmt.Errorf("filterrepo: filtering files: %w", err)
+
 				c.Skip()
+
 				return
 			}
 		}
+
 		cf.Tweak(c, hadFileChanges)
 	}
+
 	return cb, &cbErr
 }
 
@@ -193,20 +209,25 @@ func aggregateErrors(cbErr, runErr, waitExport error, exportStderr string,
 	if cbErr != nil {
 		return cbErr
 	}
+
 	if waitExport != nil {
 		return fmt.Errorf("filterrepo: fast-export failed: %w%s", waitExport, stderrSuffix(exportStderr))
 	}
+
 	if waitImport != nil {
 		return fmt.Errorf("filterrepo: fast-import failed: %w%s", waitImport, stderrSuffix(importStderr))
 	}
+
 	if runErr != nil {
 		// A parser/stream error is often a downstream symptom of fast-import
 		// dying; surface its stderr too when present.
 		if importStderr != "" {
 			return fmt.Errorf("filterrepo: stream error: %w%s", runErr, stderrSuffix(importStderr))
 		}
+
 		return fmt.Errorf("filterrepo: stream error: %w", runErr)
 	}
+
 	return nil
 }
 
@@ -215,6 +236,7 @@ func stderrSuffix(s string) string {
 	if s == "" {
 		return ""
 	}
+
 	return ": " + s
 }
 
@@ -225,9 +247,11 @@ func trimSpaceASCII(s string) string {
 	for start < end && isASCIISpace(s[start]) {
 		start++
 	}
+
 	for end > start && isASCIISpace(s[end-1]) {
 		end--
 	}
+
 	return s[start:end]
 }
 

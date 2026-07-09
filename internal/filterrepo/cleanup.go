@@ -19,10 +19,12 @@ func cleanup(gitBin, repoDir string, bare bool) error {
 		name string
 		args []string
 	}
+
 	var steps []step
 	if !bare {
 		steps = append(steps, step{"reset", []string{"reset", "--quiet", "--hard"}})
 	}
+
 	steps = append(steps,
 		step{"reflog expire", []string{"reflog", "expire", "--expire=now", "--all"}},
 		step{"gc", []string{"gc", "--quiet", "--prune=now"}},
@@ -33,5 +35,6 @@ func cleanup(gitBin, repoDir string, bare bool) error {
 			return fmt.Errorf("filterrepo: cleanup step %q failed: %w", s.name, err)
 		}
 	}
+
 	return nil
 }

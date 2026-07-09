@@ -31,16 +31,21 @@ func subcommandIndex(args []string) int {
 			if i+1 < len(args) {
 				return i + 1
 			}
+
 			return -1
 		}
+
 		if strings.HasPrefix(a, "-") {
 			if gitValueGlobals[a] {
 				i++ // also skip this flag's value
 			}
+
 			continue
 		}
+
 		return i
 	}
+
 	return -1
 }
 
@@ -52,11 +57,13 @@ func InitNeedsBranch(args []string) (initIdx int, ok bool) {
 	if idx < 0 || args[idx] != "init" {
 		return 0, false
 	}
+
 	for _, a := range args[idx+1:] {
 		if a == "-b" || a == "--initial-branch" || strings.HasPrefix(a, "--initial-branch=") {
 			return 0, false
 		}
 	}
+
 	return idx, true
 }
 
@@ -68,5 +75,6 @@ func InjectInitialBranch(args []string, initIdx int, branch string) []string {
 	out = append(out, args[:initIdx+1]...)
 	out = append(out, flag)
 	out = append(out, args[initIdx+1:]...)
+
 	return out
 }

@@ -33,6 +33,7 @@ func New() (*Scanner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan: building detector: %w", err)
 	}
+
 	return &Scanner{detector: d}, nil
 }
 
@@ -48,12 +49,14 @@ func (s *Scanner) ScanBytes(filePath string, content []byte) []report.Finding {
 		Raw:      string(content),
 		FilePath: filepath.ToSlash(filePath),
 	}
+
 	findings := s.detector.Detect(frag)
 	for i := range findings {
 		if findings[i].File == "" {
 			findings[i].File = filepath.ToSlash(filePath)
 		}
 	}
+
 	return findings
 }
 
@@ -67,19 +70,24 @@ func (s *Scanner) ScanDir(root string) ([]report.Finding, error) {
 		if err != nil {
 			return err
 		}
+
 		if d.IsDir() {
 			if d.Name() == ".git" {
 				return filepath.SkipDir
 			}
+
 			return nil
 		}
+
 		if !d.Type().IsRegular() {
 			return nil
 		}
+
 		info, ierr := d.Info()
 		if ierr != nil {
 			return nil // skip unreadable entry, keep going
 		}
+
 		if info.Size() == 0 || info.Size() > maxFileSize {
 			return nil
 		}
@@ -88,6 +96,7 @@ func (s *Scanner) ScanDir(root string) ([]report.Finding, error) {
 		if rerr != nil {
 			return nil // unreadable file: skip, don't abort the whole scan
 		}
+
 		if isBinary(content) {
 			return nil
 		}
@@ -96,12 +105,15 @@ func (s *Scanner) ScanDir(root string) ([]report.Finding, error) {
 		if rerr != nil {
 			rel = path
 		}
+
 		findings = append(findings, s.ScanBytes(rel, content)...)
+
 		return nil
 	})
 	if walkErr != nil {
 		return findings, fmt.Errorf("scan: walking %s: %w", root, walkErr)
 	}
+
 	return findings, nil
 }
 

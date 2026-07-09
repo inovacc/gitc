@@ -39,6 +39,7 @@ func NewExec(gitPath string) Enricher {
 	if gitPath == "" {
 		return noop{}
 	}
+
 	return &execEnricher{gitPath: gitPath}
 }
 
@@ -58,28 +59,35 @@ type Status struct {
 
 func (e *execEnricher) Enrich(ctx context.Context, cwd string) (json.RawMessage, error) {
 	args := []string{"status", "--porcelain=v2", "--branch"}
+
 	cmd := exec.CommandContext(ctx, e.gitPath, args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+
 	out, err := cmd.Output()
 	if err != nil {
 		// Not a git repo, git unavailable, etc. — degrade silently.
 		return nil, nil //nolint:nilerr // enrichment must never surface errors
 	}
+
 	st := parseStatus(string(out))
+
 	blob, err := json.Marshal(st)
 	if err != nil {
 		return nil, nil //nolint:nilerr
 	}
+
 	return blob, nil
 }
 
 // parseStatus parses `git status --porcelain=v2 --branch` output.
 func parseStatus(out string) Status {
 	var st Status
+
 	sc := bufio.NewScanner(strings.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
@@ -96,6 +104,7 @@ func parseStatus(out string) Status {
 				if fields[1][0] != '.' {
 					st.Staged++
 				}
+
 				if fields[1][1] != '.' {
 					st.Unstaged++
 				}
@@ -106,6 +115,7 @@ func parseStatus(out string) Status {
 			st.Untracked++
 		}
 	}
+
 	return st
 }
 
@@ -115,10 +125,12 @@ func parseAheadBehind(s string) (ahead, behind int) {
 		if len(tok) < 2 {
 			continue
 		}
+
 		n, err := strconv.Atoi(tok[1:])
 		if err != nil {
 			continue
 		}
+
 		switch tok[0] {
 		case '+':
 			ahead = n
@@ -126,5 +138,6 @@ func parseAheadBehind(s string) (ahead, behind int) {
 			behind = n
 		}
 	}
+
 	return ahead, behind
 }

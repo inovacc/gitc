@@ -32,8 +32,8 @@ type ReplaceRules struct {
 }
 
 // Empty reports whether the rule set contains no substitutions.
-func (r *ReplaceRules) Empty() bool {
-	return r == nil || (len(r.Literals) == 0 && len(r.Regexes) == 0)
+func (rules *ReplaceRules) Empty() bool {
+	return rules == nil || (len(rules.Literals) == 0 && len(rules.Regexes) == 0)
 }
 
 // ParseReplaceText reads a --replace-text file and returns the parsed rules.
@@ -43,6 +43,7 @@ func ParseReplaceText(filename string) (*ReplaceRules, error) {
 		return nil, err
 	}
 	defer f.Close()
+
 	return ParseReplaceRules(bufio.NewReader(f))
 }
 
@@ -55,6 +56,7 @@ func ParseReplaceText(filename string) (*ReplaceRules, error) {
 // (or no prefix) is a literal byte match. Empty literal lines are skipped.
 func ParseReplaceRules(r *bufio.Reader) (*ReplaceRules, error) {
 	rules := &ReplaceRules{}
+
 	for {
 		line, readErr := r.ReadBytes('\n')
 		if len(line) > 0 {
@@ -62,6 +64,7 @@ func ParseReplaceRules(r *bufio.Reader) (*ReplaceRules, error) {
 				return nil, perr
 			}
 		}
+
 		if readErr != nil {
 			return rules, nil
 		}
@@ -78,27 +81,36 @@ func (rules *ReplaceRules) addLine(line []byte) error {
 	}
 
 	var pattern []byte
+
 	switch {
 	case bytes.HasPrefix(line, []byte("regex:")):
 		pattern = line[6:]
 	case bytes.HasPrefix(line, []byte("glob:")):
 		pattern = GlobToRegex(line[5:])
 	}
+
 	if pattern != nil {
 		re, err := regexp.Compile(string(pattern))
 		if err != nil {
-			return fmt.Errorf("invalid replace-text regex %q (RE2 does not support backreferences or lookaround): %w", Decode(pattern), err)
+			return fmt.Errorf(
+				"invalid replace-text regex %q (RE2 does not support backreferences or lookaround): %w",
+				Decode(pattern), err)
 		}
+
 		rules.Regexes = append(rules.Regexes, RegexReplace{Re: re, To: cloneBytes(replacement)})
+
 		return nil
 	}
 
 	if bytes.HasPrefix(line, []byte("literal:")) {
 		line = line[8:]
 	}
+
 	if len(line) == 0 {
 		return nil
 	}
+
 	rules.Literals = append(rules.Literals, LiteralReplace{From: cloneBytes(line), To: cloneBytes(replacement)})
+
 	return nil
 }

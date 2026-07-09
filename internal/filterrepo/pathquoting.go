@@ -27,6 +27,7 @@ func init() {
 			}
 		}
 	}
+
 	for letter, val := range namedEscape {
 		escapeTable[val] = []byte{'\\', letter}
 	}
@@ -52,29 +53,35 @@ func (PathQuoting) Dequote(quoted []byte) []byte {
 	} else {
 		inner = inner[1:]
 	}
+
 	out := make([]byte, 0, len(inner))
 	for i := 0; i < len(inner); i++ {
 		if inner[i] != '\\' || i+1 >= len(inner) {
 			out = append(out, inner[i])
 			continue
 		}
+
 		next := inner[i+1]
 		if isOctal(next) && i+3 < len(inner) && isOctal(inner[i+2]) && isOctal(inner[i+3]) {
 			// Three-digit octal escape \NNN.
 			v := (inner[i+1]-'0')*64 + (inner[i+2]-'0')*8 + (inner[i+3] - '0')
 			out = append(out, v)
 			i += 3
+
 			continue
 		}
+
 		if b, ok := namedEscape[next]; ok {
 			out = append(out, b)
 			i++
+
 			continue
 		}
 		// Unknown escape: keep the escaped byte literally.
 		out = append(out, next)
 		i++
 	}
+
 	return out
 }
 
@@ -85,15 +92,20 @@ func (PathQuoting) Enquote(path []byte) []byte {
 	if len(path) == 0 {
 		return path
 	}
+
 	if path[0] != '"' && bytes.IndexByte(path, '\n') < 0 {
 		return path
 	}
+
 	var buf bytes.Buffer
 	buf.Grow(len(path) + 2)
 	buf.WriteByte('"')
+
 	for _, b := range path {
 		buf.Write(escapeTable[b])
 	}
+
 	buf.WriteByte('"')
+
 	return buf.Bytes()
 }

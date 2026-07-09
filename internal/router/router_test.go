@@ -23,7 +23,10 @@ func TestClassify(t *testing.T) {
 		{"commit with flags passes through", []string{"commit", "-m", "x"}, Passthrough, "", []string{"commit", "-m", "x"}},
 		{"sync shortcut", []string{"sync"}, RunShortcut, "sync", []string{}},
 		{"undo shortcut", []string{"undo"}, RunShortcut, "undo", []string{}},
-		{"log-graph shortcut with extra args", []string{"log-graph", "-n", "5"}, RunShortcut, "log-graph", []string{"-n", "5"}},
+		{
+			"log-graph shortcut with extra args", []string{"log-graph", "-n", "5"},
+			RunShortcut, "log-graph", []string{"-n", "5"},
+		},
 		{"quick-commit passes message", []string{"quick-commit", "msg"}, RunShortcut, "quick-commit", []string{"msg"}},
 		{"meta namespace", []string{"gitc", "audit", "5"}, Meta, "", []string{"audit", "5"}},
 		// First-class gitc-native commands.
@@ -47,9 +50,11 @@ func TestClassify(t *testing.T) {
 			if got.Kind != tt.wantKind {
 				t.Fatalf("Kind = %v, want %v", got.Kind, tt.wantKind)
 			}
+
 			if got.Kind == RunShortcut && got.Shortcut.Name != tt.wantSC {
 				t.Fatalf("Shortcut = %q, want %q", got.Shortcut.Name, tt.wantSC)
 			}
+
 			if !equalArgs(got.Args, tt.wantArgs) {
 				t.Fatalf("Args = %#v, want %#v", got.Args, tt.wantArgs)
 			}
@@ -61,10 +66,12 @@ func equalArgs(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	for i := range a {
 		if a[i] != b[i] {
 			return false
 		}
 	}
+
 	return true
 }

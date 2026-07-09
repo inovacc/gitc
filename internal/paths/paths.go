@@ -12,40 +12,50 @@ import (
 	"runtime"
 )
 
-const appName = "gitc"
+const (
+	appName   = "gitc"
+	osWindows = "windows"
+)
 
 // DataDir returns the base directory for gitc's mutable state (audit DB,
-// vendored git build). The directory is not created here; callers create it
+// downloaded git backend). The directory is not created here; callers create it
 // with the permissions they need.
 func DataDir() string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		if base := os.Getenv("LOCALAPPDATA"); base != "" {
 			return filepath.Join(base, appName)
 		}
 	}
+
 	if base := os.Getenv("XDG_DATA_HOME"); base != "" {
 		return filepath.Join(base, appName)
 	}
+
 	if home, err := os.UserHomeDir(); err == nil {
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == osWindows {
 			return filepath.Join(home, "AppData", "Local", appName)
 		}
+
 		return filepath.Join(home, ".local", "share", appName)
 	}
+
 	return filepath.Join(".", "."+appName)
 }
 
 // ConfigDir returns the base directory for gitc's user configuration.
 func ConfigDir() string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		return DataDir()
 	}
+
 	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
 		return filepath.Join(base, appName)
 	}
+
 	if home, err := os.UserHomeDir(); err == nil {
 		return filepath.Join(home, ".config", appName)
 	}
+
 	return DataDir()
 }
 
@@ -64,9 +74,10 @@ func ShimDir() string {
 // ShimGitPath returns the shimmed git binary path inside ShimDir.
 func ShimGitPath() string {
 	name := "git"
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		name = "git.exe"
 	}
+
 	return filepath.Join(ShimDir(), name)
 }
 
@@ -84,21 +95,29 @@ func ManagedGitPath() string {
 	if err != nil {
 		return ""
 	}
-	var newest string
-	var newestMod int64
+
+	var (
+		newest    string
+		newestMod int64
+	)
+
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
+
 		gitExe := filepath.Join(GitCacheDir(), e.Name(), "cmd", "git.exe")
+
 		info, err := os.Stat(gitExe)
 		if err != nil {
 			continue
 		}
+
 		if m := info.ModTime().UnixNano(); m >= newestMod {
 			newestMod = m
 			newest = gitExe
 		}
 	}
+
 	return newest
 }

@@ -50,10 +50,13 @@ func httpDo(ctx context.Context, url string) (*http.Response, error) {
 	// GitHub requires a User-Agent; an optional token raises the rate limit.
 	req.Header.Set("User-Agent", "gitc")
 	req.Header.Set("Accept", "application/vnd.github+json")
+
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
+
 	client := &http.Client{Timeout: 5 * time.Minute}
+
 	return client.Do(req)
 }
 
@@ -63,14 +66,18 @@ func Latest(ctx context.Context) (Release, error) {
 	if err != nil {
 		return Release{}, fmt.Errorf("query latest release: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
+
 	if resp.StatusCode != http.StatusOK {
 		return Release{}, fmt.Errorf("query latest release: HTTP %d", resp.StatusCode)
 	}
+
 	var rel Release
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return Release{}, fmt.Errorf("decode release: %w", err)
 	}
+
 	return rel, nil
 }
 
@@ -79,18 +86,23 @@ func List(ctx context.Context, n int) ([]Release, error) {
 	if n <= 0 {
 		n = 10
 	}
+
 	resp, err := httpDo(ctx, fmt.Sprintf("%s?per_page=%d", releasesAPI, n))
 	if err != nil {
 		return nil, fmt.Errorf("list releases: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("list releases: HTTP %d", resp.StatusCode)
 	}
+
 	var rels []Release
 	if err := json.NewDecoder(resp.Body).Decode(&rels); err != nil {
 		return nil, fmt.Errorf("decode releases: %w", err)
 	}
+
 	return rels, nil
 }
 
@@ -115,22 +127,29 @@ func SelectMinGit(assets []Asset, goarch string) (Asset, error) {
 	if err != nil {
 		return Asset{}, err
 	}
+
 	suffix := "-" + strings.ToLower(tag) + ".zip"
+
 	var busybox Asset
+
 	for _, a := range assets {
 		n := strings.ToLower(a.Name)
 		if !strings.HasPrefix(n, "mingit-") || !strings.HasSuffix(n, suffix) {
 			continue
 		}
+
 		if strings.Contains(n, "busybox") {
 			busybox = a
 			continue
 		}
+
 		return a, nil
 	}
+
 	if busybox.Name != "" {
 		return busybox, nil
 	}
+
 	return Asset{}, fmt.Errorf("no MinGit .zip asset for %s (%s) in the release", goarch, tag)
 }
 
@@ -139,22 +158,28 @@ func Download(ctx context.Context, url, destFile string) error {
 	if err := os.MkdirAll(filepath.Dir(destFile), 0o755); err != nil {
 		return err
 	}
+
 	resp, err := httpDo(ctx, url)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download: HTTP %d", resp.StatusCode)
 	}
+
 	f, err := os.Create(destFile)
 	if err != nil {
 		return err
 	}
+
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("write download: %w", err)
 	}
+
 	return f.Close()
 }
 
@@ -164,6 +189,7 @@ func Unzip(src, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("open zip: %w", err)
 	}
+
 	defer func() { _ = zr.Close() }()
 
 	cleanDest := filepath.Clean(destDir)
@@ -173,19 +199,24 @@ func Unzip(src, destDir string) error {
 		if !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) && target != cleanDest {
 			return fmt.Errorf("unsafe path in zip: %q", zf.Name)
 		}
+
 		if zf.FileInfo().IsDir() {
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
+
 			continue
 		}
+
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
+
 		if err := extractFile(zf, target); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -194,15 +225,19 @@ func extractFile(zf *zip.File, target string) error {
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = rc.Close() }()
+
 	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, zf.Mode()|0o200)
 	if err != nil {
 		return err
 	}
+
 	if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // release asset, bounded by disk
 		_ = out.Close()
 		return err
 	}
+
 	return out.Close()
 }
 
@@ -211,6 +246,7 @@ func extractFile(zf *zip.File, target string) error {
 // git executable already exists there, it is returned without re-downloading.
 func Ensure(ctx context.Context, rel Release, goarch, baseDir string) (string, error) {
 	dest := filepath.Join(baseDir, sanitizeTag(rel.Tag))
+
 	gitExe := filepath.Join(dest, "cmd", "git.exe")
 	if _, err := os.Stat(gitExe); err == nil {
 		return gitExe, nil
@@ -225,23 +261,28 @@ func Ensure(ctx context.Context, rel Release, goarch, baseDir string) (string, e
 	if err := Download(ctx, asset.URL, tmp); err != nil {
 		return "", err
 	}
+
 	defer func() { _ = os.Remove(tmp) }()
 
 	if err := Unzip(tmp, dest); err != nil {
 		return "", err
 	}
+
 	if _, err := os.Stat(gitExe); err != nil {
 		return "", fmt.Errorf("unpacked MinGit but %s is missing: %w", gitExe, err)
 	}
+
 	return gitExe, nil
 }
 
 // sanitizeTag makes a release tag safe as a directory name.
 func sanitizeTag(tag string) string {
 	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
+
 	s := repl.Replace(strings.TrimSpace(tag))
 	if s == "" {
 		return "latest"
 	}
+
 	return s
 }

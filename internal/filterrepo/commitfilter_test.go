@@ -87,6 +87,7 @@ func TestPruneEmptySingleCommit(t *testing.T) {
 			cf := NewCommitFilter(tt.mode, NewIDMap())
 			c := &Commit{Mark: 10, Branch: []byte("refs/heads/main"),
 				From: tt.parent, FileChanges: tt.fileChanges}
+
 			keep := cf.Tweak(c, tt.hadFileChanges)
 			if keep != tt.wantKeep {
 				t.Fatalf("keep = %v, want %v", keep, tt.wantKeep)
@@ -123,9 +124,11 @@ func TestLinearParentRemap(t *testing.T) {
 	if keep := cf.Tweak(d, true); !keep {
 		t.Fatalf("D should be kept")
 	}
+
 	if d.From.Mark != 1 {
 		t.Fatalf("D.From = %+v, want mark 1 (A)", d.From)
 	}
+
 	if len(d.Merges) != 0 {
 		t.Fatalf("D.Merges = %+v, want none", d.Merges)
 	}
@@ -147,6 +150,7 @@ func TestPrunedRootChildBecomesRoot(t *testing.T) {
 	if keep := cf.Tweak(b, true); !keep {
 		t.Fatalf("B should be kept")
 	}
+
 	if !b.From.IsZero() {
 		t.Fatalf("B.From = %+v, want root (zero)", b.From)
 	}
@@ -161,6 +165,7 @@ func TestMergeParentRemap(t *testing.T) {
 	a := &Commit{Mark: 1, Branch: []byte("refs/heads/main"),
 		FileChanges: []*FileChange{modifyChange("a", 100)}}
 	cf.Tweak(a, true)
+
 	b := &Commit{Mark: 2, Branch: []byte("refs/heads/main"), From: markRef(1)}
 	if keep := cf.Tweak(b, true); keep {
 		t.Fatalf("B should be pruned")
@@ -178,9 +183,11 @@ func TestMergeParentRemap(t *testing.T) {
 	if keep := cf.Tweak(m, true); !keep {
 		t.Fatalf("merge M should be kept")
 	}
+
 	if m.From.Mark != 1 {
 		t.Fatalf("M.From = %+v, want mark 1 (A)", m.From)
 	}
+
 	if len(m.Merges) != 1 || m.Merges[0].Mark != 3 {
 		t.Fatalf("M.Merges = %+v, want [mark 3]", m.Merges)
 	}
@@ -196,8 +203,10 @@ func TestMergeDedupDegenerates(t *testing.T) {
 	a := &Commit{Mark: 1, Branch: []byte("refs/heads/main"),
 		FileChanges: []*FileChange{modifyChange("a", 100)}}
 	cf.Tweak(a, true)
+
 	b := &Commit{Mark: 2, Branch: []byte("refs/heads/topic"), From: markRef(1)}
 	cf.Tweak(b, true)
+
 	c := &Commit{Mark: 3, Branch: []byte("refs/heads/main"), From: markRef(1)}
 	cf.Tweak(c, true)
 
@@ -215,6 +224,7 @@ func TestMergeDedupDegenerates(t *testing.T) {
 	if keep := cf.Tweak(child, true); !keep {
 		t.Fatalf("child should be kept")
 	}
+
 	if child.From.Mark != 1 {
 		t.Fatalf("child.From = %+v, want mark 1 (A)", child.From)
 	}
@@ -235,6 +245,7 @@ func TestNoFFDuplicateParentPreserved(t *testing.T) {
 	if keep := cf.Tweak(m, true); !keep {
 		t.Fatalf("never mode should keep")
 	}
+
 	if m.From.Mark != 1 || len(m.Merges) != 1 || m.Merges[0].Mark != 1 {
 		t.Fatalf("duplicate non-rewritten parent should be preserved, got From=%+v Merges=%+v", m.From, m.Merges)
 	}

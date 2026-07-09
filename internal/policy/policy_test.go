@@ -31,6 +31,7 @@ func TestInitNeedsBranch(t *testing.T) {
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
+
 			if ok && idx != tt.wantIdx {
 				t.Fatalf("idx = %d, want %d", idx, tt.wantIdx)
 			}

@@ -57,8 +57,10 @@ func run(args []string) int {
 	st, err := store.Open(auditDBPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: audit log unavailable: %v\n", err)
+
 		st = nil
 	}
+
 	defer func() {
 		if st != nil {
 			_ = st.Close()
@@ -72,11 +74,13 @@ func run(args []string) int {
 	// Passthrough and shortcuts require a resolved backend. Fail fast before
 	// any exec if none is available.
 	self, _ := os.Executable()
+
 	b, err := backend.Resolve(managedGitPath(), self)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 		return 1
 	}
+
 	r := runner.New(b, st, enrich.NewExec(b.Path), os.Stderr)
 
 	switch dec.Kind {
@@ -89,6 +93,7 @@ func run(args []string) int {
 		if idx, ok := policy.InitNeedsBranch(args); ok && b.SupportsInitialBranch(ctx) {
 			args = policy.InjectInitialBranch(args, idx, "main")
 		}
+
 		return r.Passthrough(ctx, args)
 	}
 }
@@ -96,64 +101,78 @@ func run(args []string) int {
 // runMeta handles gitc's own commands. They are reachable first-class as
 // `git <cmd>` (for names that don't collide with real git) and always via the
 // explicit `git gitc <cmd>` namespace. Bare `git gitc` prints gitc self-info.
-func runMeta(args []string, st *store.Store) int {
+func runMeta(args []string, st *store.Store) int { //nolint:funlen // command dispatch switch
 	cmd := ""
 	if len(args) > 0 {
 		cmd = args[0]
 	}
+
 	switch cmd {
 	case "", "help":
 		printSelfInfo()
 		printMetaHelp()
+
 		return 0
 	case "version":
 		fmt.Printf("gitc %s\n", version)
 		return 0
 	case "where":
 		self, _ := os.Executable()
+
 		b, err := backend.Resolve(managedGitPath(), self)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 			return 1
 		}
+
 		fmt.Printf("backend: %s (%s)\n", b.Path, b.Kind)
 		fmt.Printf("audit:   %s\n", auditDBPath())
+
 		return 0
 	case "audit":
 		if st == nil {
 			fmt.Fprintln(os.Stderr, "gitc: audit log unavailable")
 			return 1
 		}
+
 		n := 20
+
 		if len(args) > 1 {
 			if v, err := strconv.Atoi(args[1]); err == nil {
 				n = v
 			}
 		}
+
 		if err := st.Tail(n, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 			return 1
 		}
+
 		return 0
 	case "install":
 		apply := false
+
 		for _, a := range args[1:] {
 			if a == "--apply" {
 				apply = true
 			}
 		}
+
 		res, err := installer.Install(apply)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 			return 1
 		}
+
 		fmt.Printf("shim git: %s\n", res.ShimGit)
 		fmt.Printf("delegates to: %s\n", res.BackendPath)
+
 		if res.PathApplied {
 			fmt.Println("PATH updated for the current user; restart your shell to activate.")
 		} else {
 			fmt.Println(res.Instruction)
 		}
+
 		return 0
 	case "uninstall":
 		msg, err := installer.Uninstall()
@@ -161,7 +180,9 @@ func runMeta(args []string, st *store.Store) int {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 			return 1
 		}
+
 		fmt.Println(msg)
+
 		return 0
 	case "scrub":
 		return runScrub(args[1:])
@@ -172,6 +193,7 @@ func runMeta(args []string, st *store.Store) int {
 	default:
 		fmt.Fprintf(os.Stderr, "gitc: unknown command %q\n", cmd)
 		printMetaHelp()
+
 		return 2
 	}
 }
@@ -182,6 +204,7 @@ func runMeta(args []string, st *store.Store) int {
 // newest version (no pinned hash); --list shows recent releases.
 func runFetchGit(args []string) int {
 	var list, latest bool
+
 	for _, a := range args {
 		switch a {
 		case "--list":
@@ -193,6 +216,7 @@ func runFetchGit(args []string) int {
 			return 2
 		}
 	}
+
 	ctx := context.Background()
 	base := paths.GitCacheDir()
 
@@ -202,9 +226,11 @@ func runFetchGit(args []string) int {
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 			return 1
 		}
+
 		for _, r := range rels {
 			fmt.Println(r.Tag)
 		}
+
 		return 0
 	}
 
@@ -214,13 +240,17 @@ func runFetchGit(args []string) int {
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 			return 1
 		}
+
 		fmt.Printf("fetching git-for-windows %s (%s)...\n", rel.Tag, runtime.GOARCH)
+
 		gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 			return 1
 		}
+
 		fmt.Printf("installed (unverified): %s\n", gitExe)
+
 		return 0
 	}
 
@@ -230,29 +260,37 @@ func runFetchGit(args []string) int {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 		return 1
 	}
+
 	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned git for %s/%s in git_release.json; try --latest\n",
 			runtime.GOOS, runtime.GOARCH)
+
 		return 1
 	}
+
 	fmt.Printf("fetching pinned git %s (%s)...\n", m.Version, asset.Name)
+
 	gitExe, err := m.EnsurePinned(ctx, asset, base)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 		return 1
 	}
+
 	fmt.Printf("installed and sha256-verified: %s\n", gitExe)
+
 	return 0
 }
 
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
 func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
+
 	self, _ := os.Executable()
 	if b, err := backend.Resolve(managedGitPath(), self); err == nil {
 		fmt.Printf("git backend: %s (%s)\n", b.Path, b.Kind)
 	}
+
 	fmt.Printf("audit log:   %s\n", auditDBPath())
 }
 
@@ -305,6 +343,7 @@ func runScrub(args []string) int {
 			return 2
 		}
 	}
+
 	spec.Invert = fl.invertPaths
 
 	var rules *filterrepo.ReplaceRules
@@ -318,6 +357,7 @@ func runScrub(args []string) int {
 
 	// Resolve the real git backend so the rewrite never re-enters the gitc shim.
 	self, _ := os.Executable()
+
 	b, berr := backend.Resolve(managedGitPath(), self)
 	if berr != nil {
 		fmt.Fprintf(os.Stderr, "git scrub: %v\n", berr)
@@ -329,6 +369,7 @@ func runScrub(args []string) int {
 	if !fl.force && !fl.dryRun {
 		fmt.Fprintln(os.Stderr, "\nThis rewrites history irreversibly. Nothing has been changed.")
 		fmt.Fprintln(os.Stderr, "Re-run with --dry-run to preview, or --force to apply.")
+
 		return 0
 	}
 
@@ -354,6 +395,7 @@ func runScrub(args []string) int {
 	} else {
 		fmt.Println("history rewrite complete; repository repacked.")
 	}
+
 	return 0
 }
 
@@ -361,21 +403,26 @@ func runScrub(args []string) int {
 // package so --path can repeat, matching the manual style used elsewhere.
 func parseScrubFlags(args []string) (scrubFlags, error) {
 	fl := scrubFlags{prune: "auto"}
+
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		next := func() (string, error) {
 			if i+1 >= len(args) {
 				return "", fmt.Errorf("%s requires a value", a)
 			}
+
 			i++
+
 			return args[i], nil
 		}
+
 		switch a {
 		case "--path":
 			v, err := next()
 			if err != nil {
 				return fl, err
 			}
+
 			fl.paths = append(fl.paths, v)
 		case "--invert-paths":
 			fl.invertPaths = true
@@ -384,12 +431,14 @@ func parseScrubFlags(args []string) (scrubFlags, error) {
 			if err != nil {
 				return fl, err
 			}
+
 			fl.replaceText = v
 		case "--prune":
 			v, err := next()
 			if err != nil {
 				return fl, err
 			}
+
 			fl.prune = v
 		case "--force":
 			fl.force = true
@@ -399,6 +448,7 @@ func parseScrubFlags(args []string) (scrubFlags, error) {
 			return fl, fmt.Errorf("unknown flag %q", a)
 		}
 	}
+
 	return fl, nil
 }
 
@@ -420,26 +470,33 @@ func parsePruneMode(s string) (filterrepo.PruneMode, error) {
 // sees the plan whether or not it is applied.
 func printScrubPlan(fl scrubFlags) {
 	fmt.Fprintln(os.Stderr, "gitc scrub plan:")
+
 	if len(fl.paths) > 0 {
 		verb := "keep only"
 		if fl.invertPaths {
 			verb = "remove"
 		}
+
 		fmt.Fprintf(os.Stderr, "  paths: %s %v\n", verb, fl.paths)
 	}
+
 	if fl.replaceText != "" {
 		fmt.Fprintf(os.Stderr, "  replace-text: apply rules from %s\n", fl.replaceText)
 	}
+
 	if len(fl.paths) == 0 && fl.replaceText == "" {
 		fmt.Fprintln(os.Stderr, "  (no --path or --replace-text given: history would be re-exported unchanged)")
 	}
+
 	fmt.Fprintf(os.Stderr, "  prune empty commits: %s\n", fl.prune)
+
 	mode := "APPLY (rewrites history, then repacks)"
 	if fl.dryRun {
 		mode = "dry run (no changes)"
 	} else if !fl.force {
 		mode = "preview only (pass --force to apply)"
 	}
+
 	fmt.Fprintf(os.Stderr, "  mode: %s\n", mode)
 }
 
@@ -449,6 +506,7 @@ func printScrubPlan(fl scrubFlags) {
 // if any secrets are found (so it is usable as a CI gate) and 0 when clean.
 func runScan(args []string) int {
 	path := "."
+
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -481,6 +539,7 @@ func runScan(args []string) int {
 		if f.StartLine > 0 {
 			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
 		}
+
 		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, maskSecret(f.Secret))
 	}
 
@@ -488,7 +547,9 @@ func runScan(args []string) int {
 		fmt.Printf("scan clean: no secrets found in %s\n", path)
 		return 0
 	}
+
 	fmt.Printf("scan: %d potential secret(s) found in %s\n", len(findings), path)
+
 	return 1
 }
 
@@ -498,10 +559,12 @@ func maskSecret(secret string) string {
 	if secret == "" {
 		return "<redacted>"
 	}
+
 	const keep = 4
 	if len(secret) <= keep {
 		return strings.Repeat("*", len(secret))
 	}
+
 	return secret[:keep] + strings.Repeat("*", 6)
 }
 
@@ -509,6 +572,7 @@ func auditDBPath() string {
 	if v := os.Getenv("GITC_AUDIT_DB"); v != "" {
 		return v
 	}
+
 	return paths.AuditDBPath()
 }
 
@@ -516,5 +580,6 @@ func managedGitPath() string {
 	if v := os.Getenv("GITC_GIT_BACKEND"); v != "" {
 		return v
 	}
+
 	return paths.ManagedGitPath()
 }

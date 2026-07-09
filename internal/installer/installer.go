@@ -39,10 +39,12 @@ func Install(applyPath bool) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve own path: %w", err)
 	}
+
 	self, _ = filepath.Abs(self)
 
 	shimDir := paths.ShimDir()
 	shimGit := paths.ShimGitPath()
+
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("create shim dir: %w", err)
 	}
@@ -68,10 +70,14 @@ func Install(applyPath bool) (Result, error) {
 		if err := prependUserPath(shimDir); err != nil {
 			return res, fmt.Errorf("apply PATH: %w", err)
 		}
+
 		res.PathApplied = true
+
 		return res, nil
 	}
+
 	res.Instruction = manualPathInstruction(shimDir)
+
 	return res, nil
 }
 
@@ -82,6 +88,7 @@ func Uninstall() (string, error) {
 	if err := os.RemoveAll(shimDir); err != nil {
 		return "", fmt.Errorf("remove shim dir: %w", err)
 	}
+
 	return fmt.Sprintf("Removed %s. Remove it from PATH to fully undo shadowing.", shimDir), nil
 }
 
@@ -90,19 +97,23 @@ func copyExecutable(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open self: %w", err)
 	}
+
 	defer func() { _ = in.Close() }()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return fmt.Errorf("create shim git: %w", err)
 	}
+
 	if _, err := io.Copy(out, in); err != nil {
 		_ = out.Close()
 		return fmt.Errorf("copy shim git: %w", err)
 	}
+
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("finalize shim git: %w", err)
 	}
+
 	return nil
 }
 
@@ -115,6 +126,7 @@ func manualPathInstruction(shimDir string) string {
 				"Then restart your shell. Or re-run: gitc gitc install --apply",
 			shimDir)
 	}
+
 	return fmt.Sprintf(
 		"Prepend the shim dir to PATH in your shell profile (e.g. ~/.bashrc):\n"+
 			"  export PATH=\"%s:$PATH\"\n"+
@@ -139,9 +151,11 @@ func prependUserPath(dir string) error {
 			"[Environment]::SetEnvironmentVariable('Path', $d + ';' + $p, 'User')}",
 		strings.ReplaceAll(dir, "'", "''"))
 	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("powershell set user PATH: %w: %s", err, strings.TrimSpace(string(out)))
 	}
+
 	return nil
 }

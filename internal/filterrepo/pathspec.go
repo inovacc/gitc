@@ -58,8 +58,10 @@ func (s *PathSpec) AddMatch(path []byte) error {
 	if err := validatePath(path); err != nil {
 		return err
 	}
+
 	s.rules = append(s.rules, PathRule{mod: modFilter, kind: kindMatch, match: cloneBytes(path)})
 	s.hasFilter = true
+
 	return nil
 }
 
@@ -71,24 +73,31 @@ func (s *PathSpec) AddGlob(glob []byte) error {
 	if err := validatePath(glob); err != nil {
 		return err
 	}
+
 	re, err := compileGlobRule(glob)
 	if err != nil {
 		return err
 	}
+
 	s.rules = append(s.rules, PathRule{mod: modFilter, kind: kindGlob, match: cloneBytes(glob), re: re})
 	s.hasFilter = true
+
 	if !bytes.HasSuffix(glob, []byte("*")) {
 		ext := []byte("/*")
 		if bytes.HasSuffix(glob, []byte("/")) {
 			ext = []byte("*")
 		}
+
 		extended := append(cloneBytes(glob), ext...)
+
 		re2, err := compileGlobRule(extended)
 		if err != nil {
 			return err
 		}
+
 		s.rules = append(s.rules, PathRule{mod: modFilter, kind: kindGlob, match: extended, re: re2})
 	}
+
 	return nil
 }
 
@@ -98,23 +107,28 @@ func (s *PathSpec) AddRegex(pattern []byte) error {
 	if err := validatePath(pattern); err != nil {
 		return err
 	}
+
 	re, err := compilePathRegex(pattern)
 	if err != nil {
 		return err
 	}
+
 	s.rules = append(s.rules, PathRule{mod: modFilter, kind: kindRegex, re: re})
 	s.hasFilter = true
+
 	return nil
 }
 
 // AddRename adds an exact-match renaming rule, corresponding to --path-rename.
 // A path whose name matches old (as a file or leading directory) has its first
 // occurrence of old rewritten to new.
-func (s *PathSpec) AddRename(old, new []byte) error {
-	if err := validateRename(old, new); err != nil {
+func (s *PathSpec) AddRename(old, dst []byte) error {
+	if err := validateRename(old, dst); err != nil {
 		return err
 	}
-	s.rules = append(s.rules, PathRule{mod: modRename, kind: kindMatch, match: cloneBytes(old), repl: cloneBytes(new)})
+
+	s.rules = append(s.rules, PathRule{mod: modRename, kind: kindMatch, match: cloneBytes(old), repl: cloneBytes(dst)})
+
 	return nil
 }
 
@@ -126,7 +140,9 @@ func (s *PathSpec) AddRenameRegex(pattern, repl []byte) error {
 	if err != nil {
 		return err
 	}
+
 	s.rules = append(s.rules, PathRule{mod: modRename, kind: kindRegex, re: re, repl: translateBackrefs(repl)})
+
 	return nil
 }
 
@@ -141,12 +157,13 @@ func (s *PathSpec) AddFromFile(filename string) error {
 		return err
 	}
 	defer f.Close()
+
 	return s.addFromReaderLines(bufio.NewReader(f))
 }
 
 // addFromReaderLines is the byte-oriented core of AddFromFile, split out so it
 // can be exercised directly from tests without a temporary file.
-func (s *PathSpec) addFromReaderLines(r *bufio.Reader) error {
+func (s *PathSpec) addFromReaderLines(r *bufio.Reader) error { //nolint:funcorder // kept beside AddFromFile
 	for {
 		line, readErr := r.ReadBytes('\n')
 		if len(line) > 0 {
@@ -154,20 +171,23 @@ func (s *PathSpec) addFromReaderLines(r *bufio.Reader) error {
 				return perr
 			}
 		}
+
 		if readErr != nil {
 			return nil
 		}
 	}
 }
 
-func (s *PathSpec) addLine(line []byte) error {
+func (s *PathSpec) addLine(line []byte) error { //nolint:funcorder // kept beside AddFromFile
 	line = bytes.TrimRight(line, "\r\n")
 	if len(line) == 0 || line[0] == '#' {
 		return nil
 	}
 
 	var repl []byte
+
 	hasRepl := false
+
 	if idx := bytes.LastIndex(line, []byte("==>")); idx >= 0 {
 		repl = line[idx+3:]
 		line = line[:idx]
@@ -180,23 +200,28 @@ func (s *PathSpec) addLine(line []byte) error {
 		if hasRepl {
 			return s.AddRenameRegex(pat, repl)
 		}
+
 		return s.AddRegex(pat)
 	case bytes.HasPrefix(line, []byte("glob:")):
 		if hasRepl {
 			return fmt.Errorf("'glob:' and '==>' are incompatible (renaming globs makes no sense)")
 		}
+
 		return s.AddGlob(line[5:])
 	default:
 		match := line
 		if bytes.HasPrefix(line, []byte("literal:")) {
 			match = line[8:]
 		}
+
 		if hasRepl {
 			return s.AddRename(match, repl)
 		}
+
 		if len(match) == 0 {
 			return nil
 		}
+
 		return s.AddMatch(match)
 	}
 }
@@ -209,12 +234,14 @@ func (s *PathSpec) addLine(line []byte) error {
 func (s *PathSpec) NewName(path []byte) (newPath []byte, keep bool) {
 	wanted := false
 	name := path
+
 	for _, r := range s.rules {
 		switch r.mod {
 		case modFilter:
 			if wanted {
 				continue
 			}
+
 			switch r.kind {
 			case kindMatch:
 				if filenameMatches(r.match, name) {
@@ -236,9 +263,11 @@ func (s *PathSpec) NewName(path []byte) (newPath []byte, keep bool) {
 			}
 		}
 	}
+
 	if wanted == s.inclusive() {
 		return name, true
 	}
+
 	return nil, false
 }
 
@@ -254,10 +283,12 @@ func filenameMatches(expr, pathname []byte) bool {
 	if len(expr) == 0 {
 		return true
 	}
+
 	n := len(expr)
 	if !bytes.HasPrefix(pathname, expr) {
 		return false
 	}
+
 	return expr[n-1] == '/' || len(pathname) == n || pathname[n] == '/'
 }
 
@@ -267,10 +298,12 @@ func replaceFirst(s, old, repl []byte) []byte {
 	if i < 0 {
 		return s
 	}
+
 	out := make([]byte, 0, len(s)-len(old)+len(repl))
 	out = append(out, s[:i]...)
 	out = append(out, repl...)
 	out = append(out, s[i+len(old):]...)
+
 	return out
 }
 
@@ -280,6 +313,7 @@ func compileGlobRule(glob []byte) (*regexp.Regexp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid path glob %q: %w", Decode(glob), err)
 	}
+
 	return re, nil
 }
 
@@ -288,8 +322,11 @@ func compileGlobRule(glob []byte) (*regexp.Regexp, error) {
 func compilePathRegex(pattern []byte) (*regexp.Regexp, error) {
 	re, err := regexp.Compile(string(pattern))
 	if err != nil {
-		return nil, fmt.Errorf("invalid path regex %q (RE2 does not support backreferences or lookaround): %w", Decode(pattern), err)
+		return nil, fmt.Errorf(
+			"invalid path regex %q (RE2 does not support backreferences or lookaround): %w",
+			Decode(pattern), err)
 	}
+
 	return re, nil
 }
 
@@ -298,26 +335,32 @@ func validatePath(p []byte) error {
 	if bytes.HasPrefix(p, []byte("/")) {
 		return fmt.Errorf("pathnames cannot begin with a '/': %q", Decode(p))
 	}
+
 	for _, comp := range bytes.Split(p, []byte("/")) {
 		if bytes.Equal(comp, []byte(".")) || bytes.Equal(comp, []byte("..")) {
 			return fmt.Errorf("invalid path component %q found in %q", Decode(comp), Decode(p))
 		}
 	}
+
 	return nil
 }
 
 // validateRename validates both sides of a --path-rename directive.
-func validateRename(old, new []byte) error {
+func validateRename(old, dst []byte) error {
 	if err := validatePath(old); err != nil {
 		return err
 	}
-	if err := validatePath(new); err != nil {
+
+	if err := validatePath(dst); err != nil {
 		return err
 	}
-	if len(old) > 0 && len(new) > 0 &&
-		bytes.HasSuffix(old, []byte("/")) != bytes.HasSuffix(new, []byte("/")) {
-		return fmt.Errorf("when renaming, if OLD_NAME and NEW_NAME are both non-empty and either ends with a slash then both must")
+
+	if len(old) > 0 && len(dst) > 0 &&
+		bytes.HasSuffix(old, []byte("/")) != bytes.HasSuffix(dst, []byte("/")) {
+		return fmt.Errorf("when renaming, if OLD_NAME and NEW_NAME are both non-empty and " +
+			"either ends with a slash then both must")
 	}
+
 	return nil
 }
 
@@ -337,7 +380,9 @@ func cloneBytes(b []byte) []byte {
 	if b == nil {
 		return nil
 	}
+
 	out := make([]byte, len(b))
 	copy(out, b)
+
 	return out
 }

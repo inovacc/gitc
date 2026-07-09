@@ -50,6 +50,7 @@ func sanityCheck(gitBin, repoDir string, force bool) error {
 	if err != nil {
 		return fmt.Errorf("filterrepo: counting objects: %w", err)
 	}
+
 	if counts.Packs > 1 || counts.Count >= 100 || (counts.Packs == 1 && counts.Count > 0) {
 		return &SanityError{Reason: "expected a freshly packed repo"}
 	}
@@ -59,6 +60,7 @@ func sanityCheck(gitBin, repoDir string, force bool) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -69,6 +71,7 @@ func checkCleanWorktree(gitBin, repoDir string) error {
 	if err != nil {
 		return fmt.Errorf("filterrepo: checking staged changes: %w", err)
 	}
+
 	if staged != 0 {
 		return &SanityError{Reason: "you have staged but uncommitted changes"}
 	}
@@ -77,6 +80,7 @@ func checkCleanWorktree(gitBin, repoDir string) error {
 	if err != nil {
 		return fmt.Errorf("filterrepo: checking unstaged changes: %w", err)
 	}
+
 	if unstaged != 0 {
 		return &SanityError{Reason: "you have unstaged changes"}
 	}
@@ -85,8 +89,10 @@ func checkCleanWorktree(gitBin, repoDir string) error {
 	if err != nil {
 		return fmt.Errorf("filterrepo: checking untracked files: %w", err)
 	}
+
 	if untracked != "" {
 		return &SanityError{Reason: "you have untracked changes"}
 	}
+
 	return nil
 }

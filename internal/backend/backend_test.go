@@ -12,11 +12,13 @@ func gitName() string {
 	if runtime.GOOS == "windows" {
 		return "git.exe"
 	}
+
 	return "git"
 }
 
 func writeFakeExe(t *testing.T, path string) {
 	t.Helper()
+
 	if err := os.WriteFile(path, []byte("fake"), 0o755); err != nil {
 		t.Fatalf("write fake exe: %v", err)
 	}
@@ -42,9 +44,10 @@ func TestFindsDistinctSystemGit(t *testing.T) {
 	selfDir := t.TempDir()
 	realDir := t.TempDir()
 	self := filepath.Join(selfDir, gitName())
-	real := filepath.Join(realDir, gitName())
+	realGit := filepath.Join(realDir, gitName())
+
 	writeFakeExe(t, self)
-	writeFakeExe(t, real)
+	writeFakeExe(t, realGit)
 
 	t.Setenv("PATH", selfDir+string(os.PathListSeparator)+realDir)
 
@@ -52,8 +55,9 @@ func TestFindsDistinctSystemGit(t *testing.T) {
 	if !ok {
 		t.Fatal("expected to find the distinct system git")
 	}
-	if !samePath(got, real) {
-		t.Fatalf("found %q, want %q", got, real)
+
+	if !samePath(got, realGit) {
+		t.Fatalf("found %q, want %q", got, realGit)
 	}
 }
 
@@ -64,13 +68,16 @@ func samePath(a, b string) bool {
 	if r, err := filepath.EvalSymlinks(a); err == nil {
 		a = r
 	}
+
 	if r, err := filepath.EvalSymlinks(b); err == nil {
 		b = r
 	}
+
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if runtime.GOOS == "windows" {
 		return strings.EqualFold(a, b)
 	}
+
 	return a == b
 }
 
@@ -91,9 +98,11 @@ func TestResolvePrefersVendored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if b.Kind != KindManaged {
 		t.Fatalf("Kind = %v, want managed", b.Kind)
 	}
+
 	if !samePath(b.Path, vendored) {
 		t.Fatalf("Path = %q, want %q", b.Path, vendored)
 	}

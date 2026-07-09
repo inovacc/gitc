@@ -1,81 +1,62 @@
-# https://golangci-lint.run/docs/welcome/install/
-
+# https://golangci-lint.run — strict compliance config.
 version: "2"
 
 run:
-  timeout: 2m
+  timeout: 5m
 
 linters:
-  default: all
+  # Standard set (govet, errcheck, ineffassign, staticcheck, unused) plus a
+  # strict selection covering complexity, duplication, formatting, imports,
+  # context usage, and ordering.
+  default: standard
   enable:
-    - govet
-    - errcheck
-    - bodyclose
-    - copyloopvar
-    - depguard
-    - dogsled
-    - dupl
-    - errorlint
-    - gocheckcompilerdirectives
-    - goconst
-    - gocritic
-    - gocyclo
-    - godox
-    - goprintffuncname
-    - gosec
-    - intrange
-    - ineffassign
-    - lll
-    - misspell
-    - nakedret
-    - noctx
-    - nolintlint
-    - staticcheck
-    - testifylint
-    - unconvert
-    - unparam
-    - unused
-    - whitespace
-    - wsl_v5
+    - wsl_v5      # whitespace / cuddling rules
+    - unparam     # unused function params/results
+    - noctx       # http calls / exec without context
+    - testifylint # testify usage correctness
+    - gocyclo     # cyclomatic complexity
+    - goconst     # repeated strings that should be constants
+    - depguard    # import allow/deny policy
+    - dogsled     # too many blank identifiers in assignments
+    - dupl        # duplicated code blocks
+    - lll         # long lines
+    - funlen      # long functions
+    - funcorder   # declaration ordering (constructors, exported first)
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: io/ioutil
+              desc: deprecated; use io and os
+            - pkg: github.com/pkg/errors
+              desc: use the standard errors package with %w
+    errcheck:
+      # Best-effort writes to stderr / an io.Writer and Close on read paths are
+      # intentionally unchecked.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+        - (*os.File).Close
+    staticcheck:
+      # SA1019: gitleaks v8's detect.Fragment is flagged deprecated ("v9 will use
+      # sources.Fragment") but is the current, correct API for v8.
+      checks: ["all", "-SA1019"]
+    lll:
+      line-length: 120
+    funlen:
+      # Enforced, but generous enough not to fragment cohesive parsers/handlers.
+      lines: 80
+      statements: 60
 
-  disable:
-    - tagliatelle
-    - gochecknoglobals
-    - mnd
-    - testpackage
-    - varnamelen
-    - paralleltest
-    - gochecknoinits
-    - funlen
-    - cyclop
-    - err113
-    - wsl
-    - errorlint
-    - exhaustruct
-    - forcetypeassert
-    - funcorder
-    - gocognit
-    - godot
-    - godox
-    - gosec
-    - gosmopolitan
-    - intrange
-    - ireturn
-    - lll
-    - nestif
-    - nlreturn
-    - noctx
-    - noinlineerr
-    - nonamedreturns
-    - perfsprint
-    - revive
-    - tagalign
-    - testifylint
-    - thelper
-    - usetesting
-    - wrapcheck
-    - depguard
-    - dupl
-    - goconst
-    - gocyclo
-    - whitespace
+  exclusions:
+    rules:
+      # Tests are legitimately long (table setups) and repeat literals/blocks.
+      - path: _test\.go
+        linters: [funlen, dupl, goconst, lll, noctx]
+
+formatters:
+  enable:
+    - gofmt

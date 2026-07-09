@@ -22,21 +22,27 @@ func TestParseStatus(t *testing.T) {
 	if st.Branch != "main" {
 		t.Errorf("Branch = %q, want main", st.Branch)
 	}
+
 	if st.OID != "abc123" {
 		t.Errorf("OID = %q, want abc123", st.OID)
 	}
+
 	if st.Ahead != 2 || st.Behind != 1 {
 		t.Errorf("ahead/behind = %d/%d, want 2/1", st.Ahead, st.Behind)
 	}
+
 	if st.Staged != 2 { // A. and MM
 		t.Errorf("Staged = %d, want 2", st.Staged)
 	}
+
 	if st.Unstaged != 2 { // MM and .M
 		t.Errorf("Unstaged = %d, want 2", st.Unstaged)
 	}
+
 	if st.Untracked != 1 {
 		t.Errorf("Untracked = %d, want 1", st.Untracked)
 	}
+
 	if st.Conflicts != 1 {
 		t.Errorf("Conflicts = %d, want 1", st.Conflicts)
 	}
@@ -47,10 +53,12 @@ func TestParseStatusClean(t *testing.T) {
 		"# branch.oid deadbeef\n" +
 		"# branch.head release\n" +
 		"# branch.ab +0 -0\n"
+
 	st := parseStatus(out)
 	if st.Staged+st.Unstaged+st.Untracked+st.Conflicts != 0 {
 		t.Errorf("expected clean tree, got %+v", st)
 	}
+
 	if st.Branch != "release" {
 		t.Errorf("Branch = %q, want release", st.Branch)
 	}

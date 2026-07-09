@@ -65,6 +65,7 @@ func (p *FastExportParser) Run(r io.Reader, w io.Writer, cb Callbacks) error {
 	p.cb = cb
 
 	p.advance()
+
 	for p.err == nil && !p.done && len(p.line) > 0 {
 		switch {
 		case p.startsWith("blob"):
@@ -85,6 +86,7 @@ func (p *FastExportParser) Run(r io.Reader, w io.Writer, cb Callbacks) error {
 			if p.cb.Done != nil {
 				p.cb.Done()
 			}
+
 			p.parseLiteral()
 			p.done = true
 		case p.startsWith("get-mark"), p.startsWith("cat-blob"), p.startsWith("ls"):
@@ -93,6 +95,7 @@ func (p *FastExportParser) Run(r io.Reader, w io.Writer, cb Callbacks) error {
 			p.fail(fmt.Errorf("filterrepo: could not parse line: %q", trimNL(p.line)))
 		}
 	}
+
 	return p.err
 }
 
@@ -111,6 +114,7 @@ func (p *FastExportParser) advance() {
 	if p.err != nil {
 		return
 	}
+
 	line, err := p.br.ReadBytes('\n')
 	if err != nil {
 		if err == io.EOF {
@@ -119,12 +123,16 @@ func (p *FastExportParser) advance() {
 			} else {
 				p.line = line
 			}
+
 			return
 		}
+
 		p.fail(err)
 		p.line = nil
+
 		return
 	}
+
 	p.line = line
 }
 
@@ -164,12 +172,16 @@ func (p *FastExportParser) parseOptionalMark() int {
 	if !p.startsWith("mark :") {
 		return 0
 	}
+
 	num := trimNL(p.line[len("mark :"):])
+
 	n, err := strconv.Atoi(string(num))
 	if err != nil {
 		return 0
 	}
+
 	p.advance()
+
 	return n
 }
 
@@ -183,35 +195,45 @@ func (p *FastExportParser) parseOptionalParentRef(refname string) (present bool,
 		if n, err := strconv.Atoi(string(num)); err == nil {
 			newMark, ok := p.ids.Translate(n)
 			p.advance()
+
 			if !ok {
 				return true, Ref{}
 			}
+
 			return true, Ref{Mark: newMark}
 		}
 	}
+
 	oidPrefix := refname + " "
 	if p.startsWith(oidPrefix) {
 		rest := trimNL(p.line[len(oidPrefix):])
 		if isHexOID(rest) {
 			oid := append([]byte(nil), rest...)
+
 			p.advance()
+
 			return true, Ref{OID: oid}
 		}
 	}
+
 	return false, Ref{}
 }
 
 func (p *FastExportParser) parseOriginalID() []byte {
 	id := bytes.TrimRight(p.line[len("original-oid "):], " \t\r\n")
 	out := append([]byte(nil), id...)
+
 	p.advance()
+
 	return out
 }
 
 func (p *FastExportParser) parseEncoding() []byte {
 	enc := bytes.TrimRight(p.line[len("encoding "):], " \t\r\n")
 	out := append([]byte(nil), enc...)
+
 	p.advance()
+
 	return out
 }
 
@@ -221,24 +243,33 @@ func (p *FastExportParser) parseRefLine(prefix string) []byte {
 		p.fail(fmt.Errorf("filterrepo: malformed %s line: %q", prefix, trimNL(p.line)))
 		return nil
 	}
+
 	arg := trimNL(p.line[len(prefix)+1:])
 	out := append([]byte(nil), arg...)
+
 	p.advance()
+
 	return out
 }
 
 // parseUser parses an "author"/"committer"/"tagger" identity line.
 func (p *FastExportParser) parseUser(prefix string) UserInfo {
 	rest := trimNL(p.line[len(prefix):])
+
 	var u UserInfo
+
 	lt := bytes.Index(rest, []byte(" <"))
 	if lt < 0 {
 		u.Name = append([]byte(nil), rest...)
+
 		p.advance()
+
 		return u
 	}
+
 	u.Name = append([]byte(nil), rest[:lt]...)
 	after := rest[lt+2:]
+
 	gt := bytes.Index(after, []byte("> "))
 	if gt < 0 {
 		u.Email = append([]byte(nil), after...)
@@ -246,7 +277,9 @@ func (p *FastExportParser) parseUser(prefix string) UserInfo {
 		u.Email = append([]byte(nil), after[:gt]...)
 		u.Date = append([]byte(nil), after[gt+2:]...)
 	}
+
 	p.advance()
+
 	return u
 }
 
@@ -259,25 +292,33 @@ func (p *FastExportParser) parseData() []byte {
 		p.fail(fmt.Errorf("filterrepo: expected data line, got %q", trimNL(p.line)))
 		return nil
 	}
+
 	spec := fields[1]
 
 	if bytes.HasPrefix(spec, []byte("<<")) {
 		delim := append([]byte(nil), spec[2:]...)
+
 		var buf bytes.Buffer
+
 		for {
 			l, err := p.br.ReadBytes('\n')
 			if len(l) == 0 && err != nil {
 				break
 			}
+
 			if bytes.Equal(trimNL(l), delim) {
 				break
 			}
+
 			buf.Write(l)
 		}
+
 		p.advance()
+
 		if p.lineIsBlank() {
 			p.advance()
 		}
+
 		return buf.Bytes()
 	}
 
@@ -286,15 +327,19 @@ func (p *FastExportParser) parseData() []byte {
 		p.fail(fmt.Errorf("filterrepo: bad data length %q: %w", spec, err))
 		return nil
 	}
+
 	data := make([]byte, size)
 	if _, err := io.ReadFull(p.br, data); err != nil {
 		p.fail(fmt.Errorf("filterrepo: short read on data payload: %w", err))
 		return nil
 	}
+
 	p.advance()
+
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	return data
 }
 
@@ -313,11 +358,13 @@ func (p *FastExportParser) parseBlob() {
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	if p.err != nil {
 		return
 	}
 
 	mark := p.ids.New()
+
 	blob := &Blob{Mark: mark, OriginalOID: origID, Data: data}
 	if oldMark != 0 {
 		p.ids.RecordRename(oldMark, mark)
@@ -326,6 +373,7 @@ func (p *FastExportParser) parseBlob() {
 	if p.cb.Blob != nil {
 		p.cb.Blob(blob)
 	}
+
 	if !blob.wasHandled() {
 		p.fail(blob.Dump(p.w))
 	}
@@ -334,10 +382,12 @@ func (p *FastExportParser) parseBlob() {
 func (p *FastExportParser) parseReset() {
 	ref := p.parseRefLine("reset")
 	p.recordExported(ref)
+
 	_, from := p.parseOptionalParentRef("from")
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	if p.err != nil {
 		return
 	}
@@ -353,6 +403,7 @@ func (p *FastExportParser) parseReset() {
 	if p.cb.Reset != nil {
 		p.cb.Reset(reset)
 	}
+
 	p.latestCommit[string(ref)] = from
 	if !reset.wasHandled() {
 		p.recordImported(ref)
@@ -360,7 +411,7 @@ func (p *FastExportParser) parseReset() {
 	}
 }
 
-func (p *FastExportParser) parseCommit() {
+func (p *FastExportParser) parseCommit() { //nolint:funlen // cohesive fast-export commit parser
 	branch := p.parseRefLine("commit")
 	p.recordExported(branch)
 	oldMark := p.parseOptionalMark()
@@ -371,11 +422,14 @@ func (p *FastExportParser) parseCommit() {
 	}
 
 	var author UserInfo
+
 	hasAuthor := false
+
 	if p.startsWith("author ") {
 		author = p.parseUser("author ")
 		hasAuthor = true
 	}
+
 	committer := p.parseUser("committer ")
 	if !hasAuthor {
 		author = committer
@@ -396,12 +450,15 @@ func (p *FastExportParser) parseCommit() {
 
 	// Parents: one optional "from" plus zero or more "merge" lines.
 	var parents []Ref
+
 	origPresent, from := p.parseOptionalParentRef("from")
 	if origPresent && !from.IsZero() {
 		parents = append(parents, from)
 	}
+
 	for p.startsWith("merge ") {
 		mp, mref := p.parseOptionalParentRef("merge")
+
 		origPresent = origPresent || mp
 		if mp && !mref.IsZero() {
 			parents = append(parents, mref)
@@ -418,23 +475,28 @@ func (p *FastExportParser) parseCommit() {
 
 	// File changes.
 	var fileChanges []*FileChange
+
 	for {
 		fc, existed, _ := p.parseOptionalFileChange()
 		if !existed {
 			break
 		}
+
 		if fc != nil {
 			fileChanges = append(fileChanges, fc)
 		}
 	}
+
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	if p.err != nil {
 		return
 	}
 
 	mark := p.ids.New()
+
 	commit := &Commit{
 		Branch:      branch,
 		Mark:        mark,
@@ -449,6 +511,7 @@ func (p *FastExportParser) parseCommit() {
 		commit.From = parents[0]
 		commit.Merges = parents[1:]
 	}
+
 	if oldMark != 0 {
 		p.ids.RecordRename(oldMark, mark)
 	}
@@ -458,6 +521,7 @@ func (p *FastExportParser) parseCommit() {
 	if bytes.HasPrefix(branch, []byte("refs/notes/")) {
 		p.recordImported(branch)
 		p.fail(commit.Dump(p.w))
+
 		return
 	}
 
@@ -468,6 +532,7 @@ func (p *FastExportParser) parseCommit() {
 	if commit.dumped != 2 { // not skipped
 		p.latestCommit[string(branch)] = Ref{Mark: mark}
 	}
+
 	if !commit.wasHandled() {
 		p.recordImported(branch)
 		p.fail(commit.Dump(p.w))
@@ -490,15 +555,18 @@ func (p *FastExportParser) parseTag() {
 	if p.startsWith("tagger") {
 		tagger = p.parseUser("tagger ")
 	}
+
 	message := p.parseData()
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	if p.err != nil {
 		return
 	}
 
 	mark := p.ids.New()
+
 	tag := &Tag{Mark: mark, Ref: name, From: from, Tagger: tagger, OriginalOID: origID, Message: message}
 	if oldMark != 0 {
 		p.ids.RecordRename(oldMark, mark)
@@ -523,9 +591,11 @@ func (p *FastExportParser) parseProgress() {
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	if p.err != nil {
 		return
 	}
+
 	progress := &Progress{Message: message}
 	if p.cb.Progress != nil {
 		p.cb.Progress(progress)
@@ -535,9 +605,11 @@ func (p *FastExportParser) parseProgress() {
 
 func (p *FastExportParser) parseCheckpoint() {
 	p.advance() // consume "checkpoint"
+
 	if p.lineIsBlank() {
 		p.advance()
 	}
+
 	checkpoint := &Checkpoint{}
 	if p.cb.Checkpoint != nil {
 		p.cb.Checkpoint(checkpoint)
@@ -548,7 +620,9 @@ func (p *FastExportParser) parseCheckpoint() {
 func (p *FastExportParser) parseLiteral() {
 	line := append([]byte(nil), p.line...)
 	cmd := &LiteralCommand{Line: line}
+
 	p.advance()
+
 	if !cmd.wasHandled() {
 		p.fail(cmd.Dump(p.w))
 	}
@@ -561,21 +635,26 @@ func (p *FastExportParser) parseOptionalFileChange() (fc *FileChange, existed, s
 	if len(p.line) == 0 {
 		return nil, false, false
 	}
+
 	switch p.line[0] {
 	case 'M':
 		parts := bytes.SplitN(p.line, []byte(" "), 4)
 		if len(parts) < 4 {
 			return nil, false, false
 		}
+
 		mode := append([]byte(nil), parts[1]...)
+
 		idnum := parts[2]
 		if len(idnum) > 0 && idnum[0] == ':' {
 			idnum = idnum[1:]
 		}
+
 		path := trimNL(parts[3])
 		if len(path) > 0 && path[0] == '"' {
 			path = p.pq.Dequote(path)
 		}
+
 		path = append([]byte(nil), path...)
 
 		var blobRef Ref
@@ -587,14 +666,18 @@ func (p *FastExportParser) parseOptionalFileChange() (fc *FileChange, existed, s
 				p.fail(fmt.Errorf("filterrepo: bad blob id %q", idnum))
 				return nil, false, false
 			}
+
 			newMark, ok := p.ids.Translate(n)
 			if !ok {
 				p.advance()
 				return nil, true, true
 			}
+
 			blobRef = Ref{Mark: newMark}
 		}
+
 		p.advance()
+
 		return &FileChange{Type: FileModify, Mode: mode, Blob: blobRef, Path: path}, true, false
 
 	case 'D':
@@ -602,8 +685,11 @@ func (p *FastExportParser) parseOptionalFileChange() (fc *FileChange, existed, s
 		if len(path) > 0 && path[0] == '"' {
 			path = p.pq.Dequote(path)
 		}
+
 		path = append([]byte(nil), path...)
+
 		p.advance()
+
 		return &FileChange{Type: FileDelete, Path: path}, true, false
 
 	case 'R', 'C':
@@ -611,8 +697,10 @@ func (p *FastExportParser) parseOptionalFileChange() (fc *FileChange, existed, s
 		if p.line[0] == 'C' {
 			typ = FileCopy
 		}
+
 		orig, newPath := p.parseRenameArgs(p.line[2:])
 		p.advance()
+
 		return &FileChange{Type: typ, OrigPath: orig, Path: newPath}, true, false
 
 	case 'd':
@@ -621,6 +709,7 @@ func (p *FastExportParser) parseOptionalFileChange() (fc *FileChange, existed, s
 			return &FileChange{Type: FileDeleteAll}, true, false
 		}
 	}
+
 	return nil, false, false
 }
 
@@ -632,10 +721,12 @@ func (p *FastExportParser) parseRenameArgs(rest []byte) (orig, newPath []byte) {
 		end := quotedStringEnd(rest)
 		if end > 0 {
 			orig = p.pq.Dequote(rest[:end])
+
 			tail := rest[end:]
 			if len(tail) > 0 && tail[0] == ' ' {
 				tail = tail[1:]
 			}
+
 			newPath = tail
 		} else {
 			orig = rest
@@ -646,11 +737,14 @@ func (p *FastExportParser) parseRenameArgs(rest []byte) (orig, newPath []byte) {
 	} else {
 		orig = rest
 	}
+
 	if len(newPath) > 0 && newPath[0] == '"' {
 		newPath = p.pq.Dequote(newPath)
 	}
+
 	orig = append([]byte(nil), orig...)
 	newPath = append([]byte(nil), newPath...)
+
 	return orig, newPath
 }
 
@@ -661,6 +755,7 @@ func trimNL(b []byte) []byte {
 	if n := len(b); n > 0 && b[n-1] == '\n' {
 		return b[:n-1]
 	}
+
 	return b
 }
 
@@ -669,11 +764,13 @@ func isHexOID(b []byte) bool {
 	if len(b) != 40 && len(b) != 64 {
 		return false
 	}
+
 	for _, c := range b {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -683,6 +780,7 @@ func quotedStringEnd(b []byte) int {
 	if len(b) == 0 || b[0] != '"' {
 		return 0
 	}
+
 	for i := 1; i < len(b); i++ {
 		switch b[i] {
 		case '\\':
@@ -691,5 +789,6 @@ func quotedStringEnd(b []byte) int {
 			return i + 1
 		}
 	}
+
 	return 0
 }
