@@ -73,7 +73,13 @@ func gitcTree() cmdNode { //nolint:funlen // static command catalog
 	native := []cmdNode{
 		{Name: "scan", Usage: "git scan [path]", Short: "Detect secrets (exit 1 if any found)", Flags: scanFlags},
 		{Name: "scrub", Usage: "git scrub [flags]", Short: "Rewrite history: purge paths / redact text", Flags: scrubFlags},
-		{Name: "audit", Usage: "git audit [N]", Short: "Show the last N audited invocations"},
+		{
+			Name: "audit", Usage: "git audit [N] [--wide]",
+			Short: "Show the last N audited invocations (compact; --wide for full)",
+			Flags: []cmdFlag{
+				{Name: "wide", Shorthand: "w", Type: "bool", Description: "full record instead of the compact summary"},
+			},
+		},
 		{Name: "where", Usage: "git where", Short: "Show resolved git backend and audit DB path"},
 		{Name: "doctor", Usage: "git doctor", Short: "Health-check the install, backend, PATH shim, audit DB"},
 		{

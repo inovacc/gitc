@@ -37,16 +37,17 @@ const GitcToken = "gitc"
 // real git keeps them; gitc's equivalents are reachable via the gitc token
 // (version) or a non-colliding name (scrub, not clean).
 var firstClassMeta = map[string]bool{
-	"scan":      true,
-	"audit":     true,
-	"scrub":     true,
-	"install":   true,
-	"uninstall": true,
-	"where":     true,
-	"fetch-git": true,
-	"update":    true,
-	"doctor":    true,
-	"cmdtree":   true,
+	"scan":           true,
+	"audit":          true,
+	"scrub":          true,
+	"install":        true,
+	"uninstall":      true,
+	"where":          true,
+	"fetch-git":      true,
+	"update":         true,
+	"doctor":         true,
+	"cmdtree":        true,
+	"backend-update": true,
 }
 
 // Decision is the result of classification.

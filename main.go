@@ -73,6 +73,13 @@ func run(ctx context.Context, args []string) int {
 		return runMeta(ctx, dec.Args, st)
 	}
 
+	// On ordinary git usage, surface any pending update notice and lazily kick
+	// off a throttled background update check — never blocking this command.
+	if os.Getenv("GITC_BACKGROUND") == "" {
+		printAndClearNotice()
+		maybeSpawnBackgroundUpdate()
+	}
+
 	// Passthrough and shortcuts require a resolved backend. Fail fast before
 	// any exec if none is available.
 	self, _ := os.Executable()
@@ -132,25 +139,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 
 		return 0
 	case "audit":
-		if st == nil {
-			fmt.Fprintln(os.Stderr, "gitc: audit log unavailable")
-			return 1
-		}
-
-		n := 20
-
-		if len(args) > 1 {
-			if v, err := strconv.Atoi(args[1]); err == nil {
-				n = v
-			}
-		}
-
-		if err := st.Tail(n, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
-			return 1
-		}
-
-		return 0
+		return runAudit(args[1:], st)
 	case "install":
 		apply := false
 
@@ -198,6 +187,8 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 		return runDoctor(args[1:])
 	case "cmdtree":
 		return runCmdtree(args[1:])
+	case "backend-update":
+		return runBackendUpdate(ctx)
 	default:
 		fmt.Fprintf(os.Stderr, "gitc: unknown command %q\n", cmd)
 		printMetaHelp()
@@ -380,6 +371,36 @@ func runUpdate(ctx context.Context, args []string) int {
 	return 0
 }
 
+// runAudit renders the audit log: a compact one-line summary by default, or the
+// full record with --wide/-w. An optional numeric argument limits the row count.
+func runAudit(args []string, st *store.Store) int {
+	if st == nil {
+		fmt.Fprintln(os.Stderr, "gitc: audit log unavailable")
+		return 1
+	}
+
+	n := 20
+	wide := false
+
+	for _, a := range args {
+		switch a {
+		case "--wide", "-w":
+			wide = true
+		default:
+			if v, err := strconv.Atoi(a); err == nil {
+				n = v
+			}
+		}
+	}
+
+	if err := st.Tail(n, wide, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
+		return 1
+	}
+
+	return 0
+}
+
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
 func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
@@ -397,7 +418,7 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "\ngitc commands (each also as `git gitc <cmd>`):")
 	fmt.Fprintln(os.Stderr, "  git scan [path]         detect secrets (exit 1 if any found)")
 	fmt.Fprintln(os.Stderr, "  git scrub [opts]        rewrite history: purge paths / redact text (--force to apply)")
-	fmt.Fprintln(os.Stderr, "  git audit [N]           show the last N audited invocations")
+	fmt.Fprintln(os.Stderr, "  git audit [N] [--wide]  show the last N audited invocations (compact; --wide=full)")
 	fmt.Fprintln(os.Stderr, "  git where               show resolved git backend and audit DB path")
 	fmt.Fprintln(os.Stderr, "  git doctor              health-check install, backend, PATH shim, audit DB")
 	fmt.Fprintln(os.Stderr, "  git update [--check|--apply]     self-update gitc from GitHub releases")

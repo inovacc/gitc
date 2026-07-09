@@ -15,4 +15,4 @@ dist/
 *.db-shm
 *.db-wal
 /.tmp/
-docs/analysis/.harden/
+docs/analysis/
