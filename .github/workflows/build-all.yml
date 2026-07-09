@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.26" }
+        with: { go-version: "1.26.5" }
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.26" }
+        with: { go-version: "1.26.5" }
       - name: build gitc
         run: go build -o gitc.exe .
       - name: fetch pinned MinGit (download + sha256 verify + unpack)
