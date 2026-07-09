@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -84,7 +85,7 @@ func run(ctx context.Context, args []string) int {
 	// any exec if none is available.
 	self, _ := os.Executable()
 
-	b, err := backend.Resolve(managedGitPath(), self)
+	b, err := resolveOrProvision(ctx, self)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 		return 1
@@ -110,6 +111,34 @@ func run(ctx context.Context, args []string) int {
 
 		return r.Passthrough(ctx, args)
 	}
+}
+
+// resolveOrProvision resolves the git backend, and on a git-less machine where
+// the pinned MinGit is available (Windows) it self-provisions on first run —
+// downloading and sha256-verifying the pinned git, activating it, then retrying.
+// Other platforms and background children surface ErrNoBackend unchanged (they
+// rely on a system git or an explicit `git fetch-git`).
+func resolveOrProvision(ctx context.Context, self string) (backend.Backend, error) {
+	b, err := backend.Resolve(managedGitPath(), self)
+	if err == nil {
+		return b, nil
+	}
+
+	if !errors.Is(err, backend.ErrNoBackend) || !pinnedAvailable() || os.Getenv("GITC_BACKGROUND") != "" {
+		return b, err
+	}
+
+	fmt.Fprintf(os.Stderr, "gitc: no git backend found; provisioning pinned git %s (first run)...\n",
+		gitwin.Pinned().Version)
+
+	gitExe, perr := installPinnedGit(ctx)
+	if perr != nil {
+		return backend.Backend{}, fmt.Errorf("%w (auto-provision failed: %v)", err, perr)
+	}
+
+	activateBackend(gitExe)
+
+	return backend.Resolve(managedGitPath(), self)
 }
 
 // runMeta handles gitc's own commands. They are reachable first-class as
@@ -293,6 +322,31 @@ func fetchGitLatest(ctx context.Context, acceptUnverified bool) int {
 	return 0
 }
 
+// pinnedAvailable reports whether the in-code pinned manifest has a git build
+// for this platform (git-for-windows MinGit is Windows-only).
+func pinnedAvailable() bool {
+	_, ok := gitwin.Pinned().For(runtime.GOOS, runtime.GOARCH)
+	return ok
+}
+
+// installPinnedGit downloads and sha256-verifies the in-code pinned MinGit into
+// a fresh app/<uuid>/ install and returns the git.exe path (not yet activated).
+func installPinnedGit(ctx context.Context) (string, error) {
+	m := gitwin.Pinned()
+
+	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
+	if !ok {
+		return "", fmt.Errorf("no pinned git for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	base, err := newInstallBase()
+	if err != nil {
+		return "", err
+	}
+
+	return m.EnsurePinned(ctx, asset, base)
+}
+
 // fetchGitPinned downloads the in-code hash-pinned MinGit (gitwin.Pinned),
 // verifies its sha256, installs it under app/<uuid>/, and activates it.
 func fetchGitPinned(ctx context.Context) int {
@@ -306,13 +360,13 @@ func fetchGitPinned(ctx context.Context) int {
 		return 1
 	}
 
+	fmt.Printf("fetching pinned git %s (%s)...\n", m.Version, asset.Name)
+
 	base, err := newInstallBase()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
 		return 1
 	}
-
-	fmt.Printf("fetching pinned git %s (%s)...\n", m.Version, asset.Name)
 
 	gitExe, err := m.EnsurePinned(ctx, asset, base)
 	if err != nil {
