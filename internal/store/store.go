@@ -5,13 +5,17 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -99,6 +103,13 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) migrate() error { //nolint:funcorder // grouped with the other setup logic
+	ctx := context.Background()
+
+	if _, err := s.db.ExecContext(ctx,
+		`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
 	entries, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
@@ -114,13 +125,28 @@ func (s *Store) migrate() error { //nolint:funcorder // grouped with the other s
 	sort.Strings(names)
 
 	for _, name := range names {
+		var applied int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, name).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %s: %w", name, err)
+		}
+
+		if applied > 0 {
+			continue
+		}
+
 		sqlBytes, err := migrations.ReadFile("migrations/" + name)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 
-		if _, err := s.db.ExecContext(context.Background(), string(sqlBytes)); err != nil {
+		if _, err := s.db.ExecContext(ctx, string(sqlBytes)); err != nil {
 			return fmt.Errorf("apply migration %s: %w", name, err)
+		}
+
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 	}
 
@@ -153,22 +179,82 @@ func (s *Store) Insert(r Record) error {
 		shortcut = r.Shortcut
 	}
 
+	enrStr := ""
+	if len(r.Enrichment) > 0 {
+		enrStr = string(r.Enrichment)
+	}
+
+	ts := r.TS.UTC().Format(time.RFC3339Nano)
+	ctx := context.Background()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin audit tx: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	var prev string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(row_hash, '') FROM audit_log ORDER BY id DESC LIMIT 1`).Scan(&prev); err != nil &&
+		!errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read chain head: %w", err)
+	}
+
+	v := rowValues{
+		ts: ts, osUser: r.OSUser, identity: r.Identity, cwd: r.Cwd,
+		argv: string(argv), env: string(env), backend: r.Backend,
+		backendPath: r.BackendPath, mode: r.Mode, shortcut: r.Shortcut,
+		enrichment: enrStr, exit: r.ExitCode, durMs: r.Duration.Milliseconds(),
+	}
+	rowHash := chainHash(prev, v)
+
 	const q = `INSERT INTO audit_log
         (ts, os_user, identity, cwd, argv, env_subset, backend, backend_path,
-         mode, shortcut, exit_code, duration_ms, enrichment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         mode, shortcut, exit_code, duration_ms, enrichment, prev_hash, row_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err = s.db.ExecContext(context.Background(), q,
-		r.TS.UTC().Format(time.RFC3339Nano),
-		r.OSUser, identity, r.Cwd, string(argv), string(env),
+	if _, err := tx.ExecContext(ctx, q,
+		ts, r.OSUser, identity, r.Cwd, string(argv), string(env),
 		r.Backend, r.BackendPath, r.Mode, shortcut,
-		r.ExitCode, r.Duration.Milliseconds(), enrichment,
-	)
-	if err != nil {
+		r.ExitCode, r.Duration.Milliseconds(), enrichment, prev, rowHash,
+	); err != nil {
 		return fmt.Errorf("insert audit row: %w", err)
 	}
 
-	return nil
+	return tx.Commit()
+}
+
+// rowValues holds the audited field values in a fixed order for the tamper-
+// evident hash chain, so Insert and Verify compute identical hashes.
+type rowValues struct {
+	ts, osUser, identity, cwd, argv, env string
+	backend, backendPath, mode, shortcut string
+	enrichment                           string
+	exit                                 int
+	durMs                                int64
+}
+
+func (v rowValues) fields() []string {
+	return []string{
+		v.ts, v.osUser, v.identity, v.cwd, v.argv, v.env,
+		v.backend, v.backendPath, v.mode, v.shortcut,
+		strconv.Itoa(v.exit), strconv.FormatInt(v.durMs, 10), v.enrichment,
+	}
+}
+
+// chainHash is sha256(prev_hash | 0x1f-separated field values); each row's hash
+// folds in the previous row's hash, so any deletion or edit breaks the chain.
+func chainHash(prev string, v rowValues) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(prev))
+
+	for _, f := range v.fields() {
+		_, _ = h.Write([]byte{0x1f})
+		_, _ = h.Write([]byte(f))
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Close releases the database handle.

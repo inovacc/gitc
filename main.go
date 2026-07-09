@@ -386,16 +386,23 @@ func runAudit(args []string, st *store.Store) int {
 
 	n := 20
 	wide := false
+	verify := false
 
 	for _, a := range args {
 		switch a {
 		case "--wide", "-w":
 			wide = true
+		case "--verify":
+			verify = true
 		default:
 			if v, err := strconv.Atoi(a); err == nil {
 				n = v
 			}
 		}
+	}
+
+	if verify {
+		return runAuditVerify(st)
 	}
 
 	if err := st.Tail(n, wide, os.Stdout); err != nil {
@@ -404,6 +411,34 @@ func runAudit(args []string, st *store.Store) int {
 	}
 
 	return 0
+}
+
+// runAuditVerify checks the tamper-evident hash chain and reports whether the
+// audit log is intact.
+func runAuditVerify(st *store.Store) int {
+	res, err := st.Verify()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
+		return 1
+	}
+
+	if res.Intact {
+		fmt.Printf("audit chain intact: %d row(s) verified", res.Checked)
+
+		if res.Legacy > 0 {
+			fmt.Printf(", %d legacy (pre-hash) row(s)", res.Legacy)
+		}
+
+		fmt.Println()
+
+		return 0
+	}
+
+	fmt.Fprintf(os.Stderr,
+		"audit chain BROKEN at row id %d (%d verified before the break): a row was deleted or edited\n",
+		res.BrokenID, res.Checked)
+
+	return 1
 }
 
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
@@ -639,9 +674,7 @@ func runScan(args []string) int {
 		a := args[i]
 		switch {
 		case a == "--audit":
-			// Scanning captured audit-log argv/env is a planned follow-up
-			// (see docs/BACKLOG.md). Working-tree scanning is the priority.
-			fmt.Fprintln(os.Stderr, "git scan: --audit is not implemented yet; scanning the working tree")
+			return runScanAudit()
 		case a == "--strict":
 			strict = true
 		case strings.HasPrefix(a, "-"):
@@ -708,6 +741,50 @@ func reportSkipped(skipped []scan.Skip) {
 
 		fmt.Fprintf(os.Stderr, "  %s: %s\n", sk.Path, sk.Reason)
 	}
+}
+
+// runScanAudit implements `git scan --audit`: it scans the captured argv and
+// env of every audit-log row for secrets that slipped past write-time redaction,
+// printing the row id per finding. Exit 1 if any are found (CI-usable).
+func runScanAudit() int {
+	st, err := store.Open(auditDBPath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
+		return 1
+	}
+
+	defer func() { _ = st.Close() }()
+
+	rows, err := st.RawRows()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
+		return 1
+	}
+
+	sc, err := scan.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
+		return 1
+	}
+
+	found := 0
+
+	for _, row := range rows {
+		for _, f := range sc.ScanString(row.Argv + "\n" + row.Env) {
+			found++
+
+			fmt.Printf("row %d\t%s\t%s\n", row.ID, f.RuleID, maskSecret(f.Secret))
+		}
+	}
+
+	if found == 0 {
+		fmt.Printf("scan --audit clean: no secrets in %d audited row(s)\n", len(rows))
+		return 0
+	}
+
+	fmt.Printf("scan --audit: %d potential secret(s) across %d audited row(s)\n", found, len(rows))
+
+	return 1
 }
 
 // maskSecret returns a redacted snippet of a detected secret so the operator

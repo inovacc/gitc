@@ -60,6 +60,102 @@ func (s *Store) Tail(n int, wide bool, w io.Writer) error {
 	return nil
 }
 
+// VerifyResult reports the outcome of an audit hash-chain check.
+type VerifyResult struct {
+	Checked  int   // hashed rows verified in-chain
+	Legacy   int   // pre-AUD-2 rows without a hash (unverifiable)
+	Intact   bool  // every hashed row links correctly
+	BrokenID int64 // id of the first failing row (0 when intact)
+}
+
+// Verify walks the audit hash chain oldest-first and reports the first row whose
+// stored hash or previous-link does not recompute — evidence of a deleted or
+// edited row. Rows written before AUD-2 carry no hash and are counted, not
+// verified.
+func (s *Store) Verify() (VerifyResult, error) {
+	const q = `SELECT id, ts, os_user, COALESCE(identity,''), cwd, argv, env_subset,
+        backend, backend_path, mode, COALESCE(shortcut,''), exit_code, duration_ms,
+        COALESCE(enrichment,''), COALESCE(prev_hash,''), COALESCE(row_hash,'')
+        FROM audit_log ORDER BY id ASC`
+
+	rows, err := s.db.QueryContext(context.Background(), q)
+	if err != nil {
+		return VerifyResult{}, fmt.Errorf("query audit log: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	res := VerifyResult{Intact: true}
+	prev := ""
+
+	for rows.Next() {
+		var (
+			id                int64
+			v                 rowValues
+			prevHash, rowHash string
+		)
+
+		if err := rows.Scan(&id, &v.ts, &v.osUser, &v.identity, &v.cwd, &v.argv, &v.env,
+			&v.backend, &v.backendPath, &v.mode, &v.shortcut, &v.exit, &v.durMs,
+			&v.enrichment, &prevHash, &rowHash); err != nil {
+			return VerifyResult{}, fmt.Errorf("scan audit row: %w", err)
+		}
+
+		if rowHash == "" {
+			res.Legacy++
+			continue
+		}
+
+		if prevHash != prev || rowHash != chainHash(prev, v) {
+			res.Intact = false
+			res.BrokenID = id
+
+			break
+		}
+
+		res.Checked++
+		prev = rowHash
+	}
+
+	if err := rows.Err(); err != nil {
+		return VerifyResult{}, fmt.Errorf("iterate audit rows: %w", err)
+	}
+
+	return res, nil
+}
+
+// RawRow is a stored invocation's raw argv + captured env, for scanning the
+// audit log itself for secrets (git scan --audit).
+type RawRow struct {
+	ID   int64
+	Argv string
+	Env  string
+}
+
+// RawRows returns every row's id, argv, and env_subset.
+func (s *Store) RawRows() ([]RawRow, error) {
+	rows, err := s.db.QueryContext(context.Background(),
+		`SELECT id, argv, env_subset FROM audit_log ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("query audit rows: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var out []RawRow
+
+	for rows.Next() {
+		var r RawRow
+		if err := rows.Scan(&r.ID, &r.Argv, &r.Env); err != nil {
+			return nil, fmt.Errorf("scan audit row: %w", err)
+		}
+
+		out = append(out, r)
+	}
+
+	return out, rows.Err()
+}
+
 // renderWide prints the full audit record.
 func renderWide(w io.Writer, l auditLine) {
 	tag := l.mode
