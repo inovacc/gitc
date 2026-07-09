@@ -1,9 +1,25 @@
 # 0003 — Port git-filter-repo (subset) from Python to Go
 
-- **Status:** Proposed
+- **Status:** Accepted (Phase 1 delivered; Phases 2–4 outstanding)
 - **Date:** 2026-07-09
 - **Deciders:** dyammarcano
-- **Related:** [docs/REFERENCES.md](../REFERENCES.md), [docs/BACKLOG.md](../BACKLOG.md), [0002 — integrate gitleaks](0002-internalize-gitleaks.md)
+- **Related:** [docs/REFERENCES.md](../REFERENCES.md), [docs/BACKLOG.md](../BACKLOG.md), [0002 — integrate gitleaks](0002-internalize-gitleaks.md), [.port-track.json](../../internal/filterrepo/.port-track.json)
+
+## Implementation status (2026-07-09)
+
+**Phase 1 — fast-export/fast-import stream codec: DONE.** Clean-room ported via
+`/dep:porting` (port-mapper → port-porter → verify) into `internal/filterrepo/`
+(`bytesutil`, `pathquoting`, `idmap`, `records`, `parser`; ~1,600 LOC incl.
+tests). Verified: `go build`/`vet`/`gofmt` clean and a byte-level **round-trip
+parity test against real `git fast-export`/`fast-import`** passes (matching
+commit count + tree hashes, incl. binary/NUL blobs and quoted paths). Per-unit
+status and deviations are tracked in
+[`internal/filterrepo/.port-track.json`](../../internal/filterrepo/.port-track.json).
+
+**Outstanding:** Phase 2 (path removal — `pathspec`/`pathfilter`/`commitfilter`),
+Phase 3 (text replacement — `replacetext`/`blobfilter`), Phase 4 (pipeline +
+sanity + cleanup + `gitc gitc clean` command surface). The prune-empty parent
+remap (Phase 2) remains the highest parity risk.
 
 ## Context
 
