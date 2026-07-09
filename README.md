@@ -11,6 +11,35 @@
 > secret scanning (`git scan`), history scrubbing (`git scrub`), and shortcuts
 > (`git sync`/`undo`/`log-graph`/`quick-commit`).
 
+## Quickstart
+
+```bash
+# 1. Build gitc
+task build                       # or: go build -o gitc .
+
+# 2. Install the PATH shim so `git` resolves to gitc (transparent, audited)
+gitc gitc install --apply        # Windows: prepends the shim dir to your user PATH
+#                                  (omit --apply to just print the PATH step to run)
+# then restart your shell
+
+# 3. Use git exactly as before — every invocation is now logged
+git status
+git commit -m "message"          # forwarded to real git, recorded in the audit log
+
+# 4. gitc's own commands, first-class
+git scan                         # detect secrets in the working tree (exit 1 if found)
+git audit 20                     # show the last 20 audited invocations
+git scrub --path secrets.env --invert-paths --force   # purge a file from all history
+git sync                         # fetch + rebase + push
+git gitc where                   # resolved git backend + audit DB path
+git gitc                         # gitc self-info + full command list
+```
+
+Before the shim is installed the binary is named `gitc`, so run its commands as
+`gitc <cmd>` (e.g. `gitc gitc install`, `gitc scan`). Once installed on PATH as
+`git`, the same commands run as `git <cmd>`. `git scrub` prints a plan and
+refuses to touch history unless you pass `--force` (or `--dry-run` to preview).
+
 ## Build
 
 ```bash
