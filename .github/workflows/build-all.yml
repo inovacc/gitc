@@ -1,0 +1,90 @@
+name: build-all
+
+# Comprehensive cross-platform build: gitc (Go) on every OS, plus the vendored
+# git compiled from source (the third_party/git submodule) on every OS with its
+# binaries uploaded as artifacts. Heavy — runs on main and on demand, not on
+# every PR (the fast build.yml/test.yml gate PRs).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitc:
+    name: gitc ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26" }
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+  vendored-git:
+    name: vendored git ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # third_party/git + its own sha1collisiondetection
+
+      # ---- Linux: full-featured build (HTTPS via libcurl) ----
+      - name: Build vendored git (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gettext zlib1g-dev \
+            libcurl4-openssl-dev libssl-dev libexpat1-dev libpcre2-dev
+          make -C third_party/git -j"$(nproc)" NO_RUST=1 \
+            prefix="$GITHUB_WORKSPACE/internal/vendor-build/git" install
+
+      # ---- macOS: system libs (skip gettext) ----
+      - name: Build vendored git (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          make -C third_party/git -j"$(sysctl -n hw.ncpu)" NO_RUST=1 NO_GETTEXT=1 \
+            prefix="$GITHUB_WORKSPACE/internal/vendor-build/git" install
+
+      # ---- Windows: MSYS2/MinGW toolchain with the full dependency set ----
+      - name: Set up MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel make
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib mingw-w64-x86_64-curl
+            mingw-w64-x86_64-openssl mingw-w64-x86_64-expat
+            mingw-w64-x86_64-pcre2 mingw-w64-x86_64-gettext
+      - name: Build vendored git (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          make -C third_party/git -j"$(nproc)" NO_RUST=1 SKIP_DASHED_BUILT_INS=YesPlease \
+            prefix="$(pwd)/internal/vendor-build/git" install
+
+      - name: Smoke test the built git
+        shell: bash
+        run: |
+          GIT=internal/vendor-build/git/bin/git
+          [ "${{ runner.os }}" = "Windows" ] && GIT="$GIT.exe"
+          "$GIT" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendored-git-${{ matrix.os }}
+          path: internal/vendor-build/git/**
+          if-no-files-found: error
