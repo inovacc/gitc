@@ -17,8 +17,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/dyammarcano/gitc/internal/backend"
-	"github.com/dyammarcano/gitc/internal/paths"
+	"github.com/inovacc/gitc/internal/backend"
+	"github.com/inovacc/gitc/internal/paths"
 )
 
 // Result reports what an install performed and what the user must still do.

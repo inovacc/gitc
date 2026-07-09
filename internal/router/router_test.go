@@ -3,7 +3,7 @@ package router
 import (
 	"testing"
 
-	"github.com/dyammarcano/gitc/internal/shortcut"
+	"github.com/inovacc/gitc/internal/shortcut"
 )
 
 func TestClassify(t *testing.T) {

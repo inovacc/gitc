@@ -10,7 +10,7 @@
 // resolution and remains for back-compat.
 package router
 
-import "github.com/dyammarcano/gitc/internal/shortcut"
+import "github.com/inovacc/gitc/internal/shortcut"
 
 // Kind is the classified invocation type.
 type Kind int

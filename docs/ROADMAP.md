@@ -1,17 +1,40 @@
 # Roadmap
 
-## Current Status
-**Overall Progress:** 0% - Project scaffolded
+gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
+agents** — stop agents leaking secrets/sensitive data through git (see the
+README "Purpose" section).
 
-## Phases
+## Shipped
 
-### Phase 1: Foundation [IN PROGRESS]
-- [x] Project scaffold (structure, tooling, CI)
-- [ ] Core domain models
-- [ ] Basic cli skeleton
+- **Transparent git shadow** — installs as `git` (PATH-precedence shim); the
+  agent's every git call flows through gitc and can't be routed around.
+- **Forensic audit log** — append-only SQLite record of every invocation
+  (args, env subset, cwd, backend, exit, duration, repo-state enrichment).
+- **Secret detection** — `git scan` (embedded gitleaks ruleset); exit 1 on
+  findings (CI-usable).
+- **History remediation** — `git scrub` (clean-room git-filter-repo port):
+  purge paths / redact text across all history, plan-by-default.
+- **Self-built git backend** — `third_party/git` submodule + reproducible build.
+- **Release** — goreleaser publishes download binaries for 6 targets.
 
-### Phase 2: Core Features [NOT STARTED]
-- [ ] Feature 1
+## Next — the hard gates (leak prevention)
 
-### Phase 3: Polish & Release [NOT STARTED]
-- [ ] v1.0.0 release
+The audit + scan + scrub are the building blocks; the enforcement is the goal.
+
+- [ ] **Pre-push / pre-commit secret gate** — run `scan` inline before a
+      passthrough `commit`/`push`; **block** (non-zero, refuse) when secrets are
+      detected, not just warn. Opt-in policy + severity threshold.
+- [ ] **Remote allow-listing** — block `push`/`fetch`/`clone` to remotes not on
+      an approved list (prevent exfiltration to arbitrary/unapproved hosts).
+- [ ] **Policy config** — a machine/org-level policy file (gates, allowed
+      remotes, redaction rules) the agent can't override.
+- [ ] **Audit-log secret scan** (`git scan --audit`) — scan captured argv/env in
+      the audit DB for secrets recorded raw.
+- [ ] **Tamper-evident audit log** — hash-chained / append-only-enforced records.
+
+## Later
+
+- [ ] Fully-featured vendored git build (HTTPS/curl) on supported toolchains.
+- [ ] git2go/libgit2 enrichment backend (optional).
+- [ ] Scan: skip vendored/submodule dirs by default.
+- [ ] Meta commands on the audited path.

@@ -17,17 +17,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dyammarcano/gitc/internal/backend"
-	"github.com/dyammarcano/gitc/internal/enrich"
-	"github.com/dyammarcano/gitc/internal/filterrepo"
-	"github.com/dyammarcano/gitc/internal/installer"
-	"github.com/dyammarcano/gitc/internal/paths"
-	"github.com/dyammarcano/gitc/internal/policy"
-	"github.com/dyammarcano/gitc/internal/router"
-	"github.com/dyammarcano/gitc/internal/runner"
-	"github.com/dyammarcano/gitc/internal/scan"
-	"github.com/dyammarcano/gitc/internal/shortcut"
-	"github.com/dyammarcano/gitc/internal/store"
+	"github.com/inovacc/gitc/internal/backend"
+	"github.com/inovacc/gitc/internal/enrich"
+	"github.com/inovacc/gitc/internal/filterrepo"
+	"github.com/inovacc/gitc/internal/installer"
+	"github.com/inovacc/gitc/internal/paths"
+	"github.com/inovacc/gitc/internal/policy"
+	"github.com/inovacc/gitc/internal/router"
+	"github.com/inovacc/gitc/internal/runner"
+	"github.com/inovacc/gitc/internal/scan"
+	"github.com/inovacc/gitc/internal/shortcut"
+	"github.com/inovacc/gitc/internal/store"
 )
 
 // version is injected at build time via -ldflags "-X main.version=...".

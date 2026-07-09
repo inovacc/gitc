@@ -5,7 +5,7 @@
   "source_license": "MIT",
   "ported_at": "2026-07-09T00:00:00Z",
   "local_package": "internal/filterrepo",
-  "local_module": "github.com/dyammarcano/gitc",
+  "local_module": "github.com/inovacc/gitc",
   "strategy": "clean_room_port",
   "scope": "subset",
   "units": [
