@@ -18,6 +18,28 @@ func TestPinnedAvailableMatchesPlatform(t *testing.T) {
 	}
 }
 
+func TestShellName(t *testing.T) {
+	t.Parallel()
+
+	// Use forward-slash / bare paths so filepath.Base behaves the same on the
+	// Linux CI and Windows (backslash is a separator only on Windows).
+	cases := map[string]string{
+		"sh.exe":            "sh",
+		"bash.exe":          "bash",
+		"gitc/shim/sh.exe":  "sh",
+		"/opt/gitc/bash":    "bash",
+		"BASH.EXE":          "bash",
+		"gitc/shim/git.exe": "",
+		"gitc":              "",
+	}
+
+	for arg0, want := range cases {
+		if got := shellName(arg0); got != want {
+			t.Errorf("shellName(%q) = %q, want %q", arg0, got, want)
+		}
+	}
+}
+
 func TestManifestForFlavor(t *testing.T) {
 	t.Parallel()
 

@@ -42,6 +42,12 @@ import (
 var version = "dev"
 
 func main() {
+	// When invoked under the name sh/bash (via an installed shim), act as a
+	// launcher for the managed backend's shell instead of the git proxy.
+	if name := shellName(os.Args[0]); name != "" {
+		os.Exit(runShell(name, os.Args[1:]))
+	}
+
 	// A signal-cancelled context so Ctrl-C aborts in-flight work (notably the
 	// network downloads in `git update` / `git fetch-git`) instead of being
 	// ignored mid-transfer.

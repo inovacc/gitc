@@ -67,6 +67,18 @@ func Install(applyPath bool) (Result, error) {
 		}
 	}
 
+	// On Windows also install sh/bash launcher shims (copies of gitc that
+	// self-detect their name and exec the managed backend's shell), so scripts
+	// and hooks that call sh/bash resolve even with no system shell installed.
+	if runtime.GOOS == osWindows {
+		for _, name := range []string{"sh.exe", "bash.exe"} {
+			dst := filepath.Join(shimDir, name)
+			if !sameExe(self, dst) {
+				_ = copyExecutable(self, dst) // best-effort; not fatal to the install
+			}
+		}
+	}
+
 	res := Result{
 		ShimDir:     shimDir,
 		ShimGit:     shimGit,

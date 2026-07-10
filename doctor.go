@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -55,6 +56,7 @@ func runDoctor(_ []string) int {
 	checkShim(report)
 	b, ok := checkBackend(report)
 	checkGitRuns(report, b, ok)
+	checkShell(report, b, ok)
 	checkAudit(report)
 
 	fmt.Println()
@@ -133,6 +135,42 @@ func checkGitRuns(report func(checkStatus, string, string), b backend.Backend, o
 	}
 
 	report(statusOK, "git executes", strings.TrimSpace(string(out)))
+}
+
+// checkShell reports whether the resolved backend can run POSIX git hooks.
+// git-for-windows finds its shell in its own install tree (not the caller's
+// PATH), so this is independent of whether `sh`/`bash` resolve in your shell.
+func checkShell(report func(checkStatus, string, string), b backend.Backend, ok bool) {
+	if runtime.GOOS != "windows" {
+		report(statusOK, "shell (hooks)", "system /bin/sh")
+		return
+	}
+
+	if !ok {
+		report(statusWarn, "shell (hooks)", "no backend to inspect")
+		return
+	}
+
+	root := filepath.Dir(filepath.Dir(b.Path)) // <version>/cmd/git.exe -> <version>
+	has := func(rel ...string) bool {
+		_, statErr := os.Stat(filepath.Join(root, filepath.Join(rel...)))
+		return statErr == nil
+	}
+
+	bash := has("usr", "bin", "bash.exe")
+	sh := has("usr", "bin", "sh.exe")
+	busybox := has("mingw64", "bin", "busybox.exe") || has("mingw64", "bin", "ash.exe")
+
+	switch {
+	case bash && sh:
+		report(statusOK, "shell (hooks)", "bash + sh (#!/bin/sh and #!/bin/bash)")
+	case sh:
+		report(statusOK, "shell (hooks)", "sh (#!/bin/sh)")
+	case busybox:
+		report(statusOK, "shell (hooks)", "sh via busybox (#!/bin/sh)")
+	default:
+		report(statusWarn, "shell (hooks)", "none — hooks won't run; run `git fetch-git --full`")
+	}
 }
 
 // checkAudit verifies the audit log opens (creating it if needed).
