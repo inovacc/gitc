@@ -32,6 +32,13 @@ tasks:
     cmds:
       - go generate ./...
 
+  shims:
+    desc: Rebuild the embedded Windows launcher shims from shim.c (needs `zig`)
+    dir: internal/installer/shim
+    cmds:
+      - zig cc -target x86_64-windows-gnu -O2 -s shim.c -o shim_amd64.exe -lshell32
+      - zig cc -target aarch64-windows-gnu -O2 -s shim.c -o shim_arm64.exe -lshell32
+
   fmt:
     desc: Format all Go code
     cmds:

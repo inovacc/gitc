@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/inovacc/gitc/internal/backend"
+	"github.com/inovacc/gitc/internal/installer/shim"
 	"github.com/inovacc/gitc/internal/paths"
 )
 
@@ -57,25 +58,8 @@ func Install(applyPath bool) (Result, error) {
 	// BackendPath is left empty when no backend exists yet (a fresh machine).
 	b, _ := backend.Resolve(paths.ManagedGitPath(), shimGit) //nolint:errcheck // missing backend is non-fatal here
 
-	// Copy gitc into the shim dir — unless we are already running *as* the shim
-	// (e.g. `git gitc install` where git is the installed shim). Windows cannot
-	// overwrite a running executable, and no copy is needed since the shim is
-	// already this exact binary; only the PATH step (if any) still applies.
-	if !sameExe(self, shimGit) {
-		if err := copyExecutable(self, shimGit); err != nil {
-			return Result{}, err
-		}
-	}
-
-	// On Windows also install sh/bash launcher shims — the same gitc binary,
-	// which self-detects its name and execs the managed backend's shell, so
-	// scripts and hooks that call sh/bash resolve even with no system shell.
-	// These are HARD LINKS to the git shim (same dir = same volume), so all
-	// three names share one inode instead of three ~15 MB copies.
-	if runtime.GOOS == osWindows {
-		for _, name := range []string{"sh.exe", "bash.exe"} {
-			_ = linkShim(shimGit, filepath.Join(shimDir, name)) // best-effort; not fatal
-		}
+	if err := placeShims(self, shimDir, shimGit); err != nil {
+		return Result{}, err
 	}
 
 	res := Result{
@@ -97,6 +81,110 @@ func Install(applyPath bool) (Result, error) {
 	res.Instruction = manualPathInstruction(shimDir)
 
 	return res, nil
+}
+
+// placeShims installs the PATH-shadowing shims. On Windows it uses the tiny
+// launcher model (ADR 0007): one canonical gitc.exe under BinDir, and
+// git/sh/bash.exe launcher shims (embedded shim.c) that exec it via sibling
+// .shim files. On other platforms the git shim is simply a copy of gitc, since
+// the git proxy there IS the gitc binary.
+func placeShims(self, shimDir, shimGit string) error {
+	if runtime.GOOS != osWindows {
+		if sameExe(self, shimGit) {
+			return nil
+		}
+
+		return copyExecutable(self, shimGit)
+	}
+
+	return placeWindowsLaunchers(self, shimDir)
+}
+
+// placeWindowsLaunchers writes the canonical gitc.exe plus the git/sh/bash.exe
+// launcher shims and their .shim files. The persona for sh/bash rides in the
+// .shim `args` line via gitc's own meta commands (`git gitc sh|bash`), so all
+// three launchers are one shared inode pointing at one real binary.
+func placeWindowsLaunchers(self, shimDir string) error {
+	launcher := shim.Binary(runtime.GOARCH)
+	if launcher == nil {
+		// No prebuilt launcher for this arch — fall back to copying gitc as the
+		// git shim so install still works (larger, but functional).
+		return copyExecutable(self, filepath.Join(shimDir, "git.exe"))
+	}
+
+	// 1. Place the single canonical gitc binary the launchers exec into. Skip
+	//    when we already ARE it (a re-install invoked through the launcher):
+	//    Windows cannot overwrite a running exe, and no copy is needed.
+	canonical := paths.CanonicalPath()
+	if err := os.MkdirAll(filepath.Dir(canonical), 0o755); err != nil {
+		return fmt.Errorf("create bin dir: %w", err)
+	}
+
+	if !sameExe(self, canonical) {
+		if err := copyExecutable(self, canonical); err != nil {
+			return err
+		}
+	}
+
+	// 2. Write the launcher as git.exe and hard-link sh/bash.exe to it, so all
+	//    three names share one small inode.
+	gitExe := filepath.Join(shimDir, "git.exe")
+	if err := writeLauncher(gitExe, launcher); err != nil {
+		return err
+	}
+
+	for _, name := range []string{"sh.exe", "bash.exe"} {
+		_ = linkShim(gitExe, filepath.Join(shimDir, name)) // best-effort; not fatal
+	}
+
+	// 3. Write each launcher's .shim. git has no args (pure passthrough); sh/bash
+	//    carry gitc's shell meta command so hooks resolve without a system shell.
+	shims := map[string]string{
+		"git.shim":  "",
+		"sh.shim":   "gitc sh",
+		"bash.shim": "gitc bash",
+	}
+	for name, args := range shims {
+		if err := writeShimFile(filepath.Join(shimDir, name), canonical, args); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeLauncher writes the embedded launcher bytes to path (recreating it so a
+// stale inode with existing hard links is replaced, not mutated in place).
+func writeLauncher(path string, data []byte) error {
+	_ = os.Remove(path)
+
+	if err := os.WriteFile(path, data, 0o755); err != nil {
+		return fmt.Errorf("write launcher %s: %w", filepath.Base(path), err)
+	}
+
+	return nil
+}
+
+// writeShimFile writes a scoop-format .shim consumed by shim.c: `path = <target>`
+// and, when args is non-empty, `args = <args>`. UTF-8 with LF line endings.
+func writeShimFile(path, target, args string) error {
+	var b strings.Builder
+
+	b.WriteString("path = ")
+	b.WriteString(target)
+	b.WriteString("\n")
+
+	if args != "" {
+		b.WriteString("args = ")
+		b.WriteString(args)
+		b.WriteString("\n")
+	}
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	}
+
+	return nil
 }
 
 // linkShim makes dst a hard link to src (same shim dir ⇒ same volume), so the
@@ -142,6 +230,11 @@ func Uninstall() (string, error) {
 	if err := os.RemoveAll(shimDir); err != nil {
 		return "", fmt.Errorf("remove shim dir: %w", err)
 	}
+
+	// Also remove the canonical binary the launchers exec'd into. Best-effort:
+	// on Windows a re-install via the launcher runs the canonical itself, which
+	// cannot delete its own running image — the leftover is swept on next start.
+	_ = os.RemoveAll(paths.BinDir())
 
 	return fmt.Sprintf("Removed %s. Remove it from PATH to fully undo shadowing.", shimDir), nil
 }

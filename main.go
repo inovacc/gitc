@@ -41,6 +41,10 @@ import (
 // version is injected at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
+// osWindows is runtime.GOOS's value on Windows, hoisted to a const so the
+// platform checks scattered across the command layer share one literal.
+const osWindows = "windows"
+
 func main() {
 	// When invoked under the name sh/bash (via an installed shim), act as a
 	// launcher for the managed backend's shell instead of the git proxy.
@@ -981,21 +985,22 @@ func maskSecret(secret string) string {
 	return secret[:keep] + strings.Repeat("*", 6)
 }
 
-// cleanShimBackups best-effort removes stale `*.old` shim binaries left behind
-// by a self-update swap: a running .exe cannot delete itself, so `git update`
-// renames the old shim aside as <name>.old and it is cleared on a later startup
-// (when it is no longer the running process).
+// cleanShimBackups best-effort removes stale `*.old` binaries left behind by a
+// self-update swap: a running .exe cannot delete itself, so the swap renames the
+// old binary aside as <name>.old and it is cleared on a later startup (when it
+// is no longer the running process). Both the shim dir (the launcher shims) and
+// the bin dir (the canonical gitc.exe that `git update` replaces) are swept.
 func cleanShimBackups() {
-	dir := paths.ShimDir()
+	for _, dir := range []string{paths.ShimDir(), paths.BinDir()} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".old") {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".old") {
+				_ = os.Remove(filepath.Join(dir, e.Name()))
+			}
 		}
 	}
 }

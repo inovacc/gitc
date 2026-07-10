@@ -81,6 +81,26 @@ func ShimGitPath() string {
 	return filepath.Join(ShimDir(), name)
 }
 
+// BinDir returns the directory holding the canonical gitc binary that the
+// installed launcher shims (git/sh/bash.exe) exec into. Keeping one real binary
+// here — rather than a full copy per shim name — is what lets the shims be tiny
+// launchers (vendored shim.c) instead of ~15 MB copies.
+func BinDir() string {
+	return filepath.Join(DataDir(), "bin")
+}
+
+// CanonicalPath returns the path to the canonical gitc binary under BinDir —
+// the target the launcher shims' `.shim` files point at, and the binary that
+// `git update` replaces in place.
+func CanonicalPath() string {
+	name := appName
+	if runtime.GOOS == osWindows {
+		name = appName + ".exe"
+	}
+
+	return filepath.Join(BinDir(), name)
+}
+
 // GitCacheDir returns the LEGACY directory where downloaded MinGit
 // distributions were unpacked, one subdirectory per release tag. New installs
 // use AppDir (ADR 0005); this remains for resolving and migrating older installs.

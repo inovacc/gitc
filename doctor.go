@@ -85,6 +85,17 @@ func checkShim(report func(checkStatus, string, string)) {
 
 	report(statusOK, "shim installed", shim)
 
+	// On Windows the shim is a tiny launcher that execs the canonical gitc.exe;
+	// verify that target exists (its absence would break every shimmed call).
+	if runtime.GOOS == osWindows {
+		canonical := paths.CanonicalPath()
+		if _, err := os.Stat(canonical); err == nil {
+			report(statusOK, "launcher target", canonical)
+		} else {
+			report(statusWarn, "launcher target", "canonical gitc.exe missing; run `git install`")
+		}
+	}
+
 	resolved, err := exec.LookPath("git")
 	if err != nil {
 		report(statusWarn, "git on PATH", "no git resolved on PATH")
@@ -141,7 +152,7 @@ func checkGitRuns(report func(checkStatus, string, string), b backend.Backend, o
 // git-for-windows finds its shell in its own install tree (not the caller's
 // PATH), so this is independent of whether `sh`/`bash` resolve in your shell.
 func checkShell(report func(checkStatus, string, string), b backend.Backend, ok bool) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != osWindows {
 		report(statusOK, "shell (hooks)", "system /bin/sh")
 		return
 	}
