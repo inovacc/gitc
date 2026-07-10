@@ -1,62 +1,78 @@
 # AGENTS.md
-<!-- rev:001 -->
+<!-- rev:002 -->
 
 Canonical cross-tool agent instructions for **gitc** — a Go CLI that transparently
-proxies the real `git` binary while recording an append-only forensic audit trail of
-every invocation. Full design: `docs/superpowers/specs/2026-07-09-gitc-forensic-git-wrapper-design.md`.
+proxies the real `git` binary (args, stdin/stdout/stderr, exit code) while recording an
+append-only, tamper-evident forensic audit trail and enforcing a non-bypassable
+machine/org policy (secret gate + remote allowlist). Architecture: `docs/ARCHITECTURE.md`;
+decisions: `docs/adr/`.
 
 ## Project shape
 
-- **Module:** `github.com/dyammarcano/gitc`
-- **Layout:** single-binary CLI (`main.go` + `internal/app`, `internal/db`,
-  `internal/platform`), built on `github.com/inovacc/mantle` bootstrap.
-- **Backends (planned, see design doc):** vendored `git/git` built from source and
-  exec'd as the passthrough backend; optional `libgit2`/`git2go` (cgo) for structured
-  audit enrichment only — never for passthrough.
-- **Audit storage:** SQLite via `sequa`-scaffolded migrations under
-  `internal/store/migrations/` (currently empty — schema is an implementation task).
+- **Module:** `github.com/inovacc/gitc`. **Pure Go, `CGO_ENABLED=0`** — no cgo, no C
+  toolchain, no libgit2. Single static binary.
+- **Command layer:** root `package main` (`main.go`, `gates.go`, `doctor.go`,
+  `shell.go`, `backendupdate.go`, `cmdtree.go`, `audit_tui.go`) — flag parsing + dispatch.
+  It should stay thin; business logic belongs in `internal/*`.
+- **`internal/` packages:** `backend` (resolve/exec the git backend, self-recursion
+  guard), `gitwin` (download + sha256-verify + extract the pinned git-for-windows
+  MinGit/full), `installer` (PATH-shim install; tiny launcher shims → one canonical
+  `gitc.exe`, ADR 0007), `paths`, `policy` (policy.json parsing + gate predicates),
+  `settings`, `store` (WAL SQLite audit DB + tamper-evident hash chain), `runner`
+  (exec + audit + the enforcement gate hook), `redact` (credential masking),
+  `selfupdate` (sha256-verified in-place update), `origin` (sha256-pinned repo URLs),
+  `scan` (gitleaks secret detection), `enrich`, `filterrepo` (clean-room
+  git-filter-repo port, ADR 0003), `gitargs`, `router`, `shortcut`, `uuidv7`.
+- **Backend:** a git-for-windows MinGit/full distribution, sha256-pinned in code and
+  auto-provisioned on first use (Windows), or a system git. gitc never reimplements git.
+- **Audit storage:** `modernc.org/sqlite` (WAL journal, IMMEDIATE tx) with migrations
+  under `internal/store/migrations/` and a per-row hash chain (`git audit --verify`).
 
 ## Build / test / lint
 
 Prefer Task (`Taskfile.yml` present):
 
 ```bash
-task build          # go build ./... (version-injected via -ldflags)
+task build          # go build ./... (version via -ldflags)
 task test           # fast tests
 task test:full      # tests + race detector + coverage
-task vet            # go vet ./...
-task lint           # golangci-lint run ./...
 task check          # fix + fmt + vet + lint + tests
+task shims          # regenerate the embedded Windows launcher shims (needs `zig`)
 ```
 
-Direct Go equivalents: `go build ./...`, `go test ./...`, `go vet ./...`.
+Lint uses **pinned** golangci-lint v2 — run it via `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint run ./...`, not a PATH binary (the pinned version is stricter). Direct Go: `go build ./...`, `go test ./...`, `go vet ./...`.
 
 ## Code style
 
-Follow `~/.claude/docs/GO_STYLE.md` (Uber Go Style Guide + Effective Go). Key points
-for this project specifically:
+Follow `~/.claude/docs/GO_STYLE.md`. Project-specific:
 
-- All actual git operations are delegated to the exec backend — never reimplement
-  git plumbing/porcelain logic in Go.
-- The self-invocation guard (resolving `gitc`'s own absolute path before searching
-  PATH for a backend) is safety-critical — any change to backend resolution needs a
-  test proving it can't recurse into itself.
-- Audit-log writes must never block or fail the underlying git command (see design
-  doc's Error Handling section) — log write failures degrade to a stderr warning.
+- All git operations are delegated to the exec backend — never reimplement git
+  plumbing/porcelain (the `filterrepo` port is the deliberate, isolated exception).
+- The **self-invocation guard** (resolving gitc's own path before searching PATH for a
+  backend) is safety-critical — any backend-resolution change needs a test proving it
+  can't recurse into itself.
+- **Audit writes never block or fail the underlying git command** — a write failure
+  degrades to a stderr warning (availability over audit completeness).
+- The enforcement gate runs at a single choke point (`runner.execAndAudit`) so
+  passthrough and every shortcut step are gated identically — do not add a git-exec
+  path that bypasses it.
 
-## Security
+## Security (this is the product)
 
-- **No redaction by default** — this is a deliberate, documented decision. Raw argv/
-  env/output land in the audit DB verbatim, which can include embedded credentials.
-  Mitigation is filesystem permissions on the audit DB (0600 / owner-only), not
-  application-level scrubbing. Do not add redaction without updating the design doc's
-  explicit risk-acceptance note.
-- Building `gitc` requires a C toolchain (MSYS2/MinGW-w64 on Windows) for the
-  vendored git-from-source build and for cgo-linking libgit2/git2go. Running a
-  prebuilt `gitc` binary does not.
+- **Enforcement is the goal, not just detection.** `policy.json` (resolved from a
+  machine dir — `%ProgramData%\gitc` / `/etc/gitc` — not the agent-relocatable user
+  env) drives a secret gate (gitleaks) and a remote allowlist. Gates **fail closed**:
+  a malformed/unresolvable/ambiguous state blocks rather than allows.
+- **Redaction IS applied** — `internal/redact` masks URL userinfo + Authorization
+  tokens in the stored argv *and* env before they reach the audit DB. (This reverses
+  the abandoned early "no redaction" design.)
+- Downloads (git backend, self-update) and the repo URLs are **sha256-pinned and
+  verified**; verification fails closed. The audit DB is owner-only (0600).
+- When changing a gate, remote/secret classification, or the audit record, add a
+  regression test — the gate's non-bypassability is the whole value proposition.
 
 ## PR / commit conventions
 
-Use conventional-commit-style messages where practical (`feat:`, `fix:`, `docs:`).
-No AI attribution in commit trailers. Follow the global git-commit rules in the
-user's AGENTS.md (concise, descriptive, no destructive ops without explicit request).
+Conventional-commit messages (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`). No AI
+attribution in trailers. Work on a branch → PR → squash-merge on protected `main`.
+Follow the global git-commit rules in the user's `~/.claude/AGENTS.md`.
