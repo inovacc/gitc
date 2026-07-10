@@ -915,7 +915,7 @@ func runScan(args []string) int {
 			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
 		}
 
-		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, maskSecret(f.Secret))
+		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, scan.Mask(f.Secret))
 	}
 
 	reportSkipped(res.Skipped)
@@ -985,7 +985,7 @@ func runScanAudit() int {
 		for _, f := range sc.ScanString(row.Argv + "\n" + row.Env) {
 			found++
 
-			fmt.Printf("row %d\t%s\t%s\n", row.ID, f.RuleID, maskSecret(f.Secret))
+			fmt.Printf("row %d\t%s\t%s\n", row.ID, f.RuleID, scan.Mask(f.Secret))
 		}
 	}
 
@@ -997,21 +997,6 @@ func runScanAudit() int {
 	fmt.Printf("scan --audit: %d potential secret(s) across %d audited row(s)\n", found, len(rows))
 
 	return 1
-}
-
-// maskSecret returns a redacted snippet of a detected secret so the operator
-// can recognize it without the terminal (or CI logs) capturing the plaintext.
-func maskSecret(secret string) string {
-	if secret == "" {
-		return "<redacted>"
-	}
-
-	const keep = 4
-	if len(secret) <= keep {
-		return strings.Repeat("*", len(secret))
-	}
-
-	return secret[:keep] + strings.Repeat("*", 6)
 }
 
 // cleanShimBackups best-effort removes stale `*.old` binaries left behind by a
