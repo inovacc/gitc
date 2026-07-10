@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -18,14 +17,14 @@ import (
 // full record on the right. Blocked (policy-refused) rows are highlighted.
 // `git audit --plain`, `--wide`, `--verify`, or any non-TTY use the text render.
 
-const auditListW = 48
+const auditListW = 46
 
 var (
 	auTitle = lipgloss.NewStyle().Bold(true).
 		Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#4C1D95")).Padding(0, 1)
 	auList = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).
 		BorderRight(true).BorderForeground(lipgloss.Color("#7C3AED")).Padding(0, 1)
-	auSel     = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	auSel     = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#4C1D95")).Bold(true)
 	auItem    = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB"))
 	auBlocked = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true)
 	auFail    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))
@@ -38,10 +37,8 @@ type auditModel struct {
 	rows      []store.AuditRow
 	visible   []int
 	cursor    int
-	vp        viewport.Model
 	search    textinput.Model
 	searching bool
-	ready     bool
 	w, h      int
 }
 
@@ -66,48 +63,27 @@ func (m auditModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		cw, ch := msg.Width-auditListW-3, msg.Height-4
-		ch = max(ch, 3)
-
-		if !m.ready {
-			m.vp = viewport.New(cw, ch)
-			m.ready = true
-		} else {
-			m.vp.Width, m.vp.Height = cw, ch
-		}
-
-		m.renderDetail()
-
 		return m, nil
-
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
 
-	var cmd tea.Cmd
-
-	m.vp, cmd = m.vp.Update(msg)
-
-	return m, cmd
+	return m, nil
 }
 
 func (m auditModel) View() string {
-	if !m.ready {
+	if m.w == 0 {
 		return "loading audit log…"
 	}
 
 	header := auTitle.Render("◆ gitc audit") + "  " +
 		auHelp.Render(fmt.Sprintf("%d record(s)", len(m.rows)))
-	body := lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), auDetail.Height(m.h-4).Render(m.vp.View()))
+	body := lipgloss.JoinHorizontal(lipgloss.Top, m.listView(), m.detailView())
 
-	var footer string
-
-	switch {
-	case m.searching:
+	footer := auHelp.Render(fmt.Sprintf(
+		"↑/↓ move • / filter • q quit    %d/%d", m.pos(), len(m.visible)))
+	if m.searching {
 		footer = m.search.View()
-	default:
-		footer = auHelp.Render(fmt.Sprintf(
-			"↑/↓ move • / filter • pgup/pgdn scroll • q quit    %d/%d", m.pos(), len(m.visible)))
 	}
 
 	return header + "\n" + body + "\n" + footer
@@ -146,26 +122,18 @@ func (m auditModel) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
-			m.renderDetail()
 		}
 	case "down", "j":
 		if m.cursor < len(m.visible)-1 {
 			m.cursor++
-			m.renderDetail()
 		}
 	case "home", "g":
 		m.cursor = 0
-		m.renderDetail()
 	case "end", "G":
 		m.cursor = len(m.visible) - 1
-		m.renderDetail()
 	}
 
-	var cmd tea.Cmd
-
-	m.vp, cmd = m.vp.Update(msg)
-
-	return m, cmd
+	return m, nil
 }
 
 // applyFilter recomputes the visible set from the search query.
@@ -174,7 +142,8 @@ func (m *auditModel) applyFilter() {
 	m.visible = m.visible[:0]
 
 	for i, r := range m.rows {
-		if q == "" || strings.Contains(strings.ToLower(r.Command()+" "+r.OSUser+" "+r.Mode+" "+r.TS), q) {
+		hay := strings.ToLower(r.Command() + " " + r.OSUser + " " + r.Mode + " " + r.TS)
+		if q == "" || strings.Contains(hay, q) {
 			m.visible = append(m.visible, i)
 		}
 	}
@@ -182,57 +151,65 @@ func (m *auditModel) applyFilter() {
 	if m.cursor >= len(m.visible) {
 		m.cursor = 0
 	}
-
-	m.renderDetail()
 }
 
-// listView renders the left-hand scrollable list of invocations.
+// bodyHeight is the number of rows available to the list/detail panes.
+func (m auditModel) bodyHeight() int {
+	return max(m.h-3, 3)
+}
+
+// listView renders the left-hand list, hard-truncated so no row ever wraps.
 func (m auditModel) listView() string {
+	const inner = auditListW - 2 // padding
+	// budget: "▸ "(2) + time(8) + " "(1) + status(7) + " "(1)
+	cmdBudget := max(inner-19, 4)
+
 	var b strings.Builder
 
 	start, end := m.window()
 	for vi := start; vi < end; vi++ {
-		row := m.rows[m.visible[vi]]
-		line := shortTS(row.TS) + "  " + status(row) + "  " + trunc(row.Command(), auditListW-20)
+		r := m.rows[m.visible[vi]]
+		line := fmt.Sprintf("%-8s %-7s %s", shortTS(r.TS), statusText(r), trunc(r.Command(), cmdBudget))
 
+		prefix := "  "
 		if vi == m.cursor {
-			b.WriteString(auSel.Render("▸ " + line))
-		} else {
-			b.WriteString("  " + auItem.Render(line))
+			prefix = "▸ "
 		}
 
+		b.WriteString(rowStyle(r, vi == m.cursor).Render(trunc(prefix+line, inner)))
 		b.WriteByte('\n')
 	}
 
-	return auList.Width(auditListW).Height(m.h - 4).Render(b.String())
+	return auList.Width(auditListW).Height(m.bodyHeight()).MaxHeight(m.bodyHeight()).Render(b.String())
 }
 
-// renderDetail sets the viewport to the selected row's full record.
-func (m *auditModel) renderDetail() {
-	if !m.ready || len(m.visible) == 0 {
-		if m.ready {
-			m.vp.SetContent(auHelp.Render("no matching records"))
-		}
+// detailView renders the selected row's full record, clipped to the pane.
+func (m auditModel) detailView() string {
+	dw := max(m.w-auditListW-4, 20)
+	bh := m.bodyHeight()
 
-		return
+	if len(m.visible) == 0 {
+		return auDetail.Width(dw).Height(bh).MaxHeight(bh).Render(auHelp.Render("no matching records"))
 	}
 
 	r := m.rows[m.visible[m.cursor]]
+	vw := max(dw-14, 10) // value column after a 12-wide label + padding
 
 	var b strings.Builder
 
+	b.WriteString(statusText(r) + "  " + lipgloss.NewStyle().Bold(true).Render(trunc(r.Command(), dw-12)) + "\n\n")
+
 	field := func(k, v string) {
-		if v != "" {
-			b.WriteString(auLabel.Render(fmt.Sprintf("%-10s", k)) + v + "\n")
+		if v = strings.TrimSpace(v); v != "" {
+			b.WriteString(auLabel.Render(fmt.Sprintf("%-10s ", k)) + trunc(v, vw) + "\n")
 		}
 	}
 
-	b.WriteString(status(r) + "  " + lipgloss.NewStyle().Bold(true).Render(r.Command()) + "\n\n")
 	field("time", r.TS)
-	field("user", strings.TrimSpace(r.OSUser+" "+r.Identity))
+	field("user", r.OSUser+" "+r.Identity)
 	field("cwd", r.Cwd)
-	field("backend", strings.TrimSpace(r.Backend+" "+r.BackendPath))
-	field("mode", strings.TrimSpace(r.Mode+" "+r.Shortcut))
+	field("backend", r.Backend+" "+r.BackendPath)
+	field("mode", r.Mode+" "+r.Shortcut)
 	field("exit", fmt.Sprintf("%d", r.Exit))
 
 	if r.DurationMS > 0 {
@@ -242,23 +219,20 @@ func (m *auditModel) renderDetail() {
 	field("env", r.Env)
 	field("enrichment", r.Enrichment)
 
-	m.vp.SetContent(b.String())
-	m.vp.GotoTop()
+	return auDetail.Width(dw).Height(bh).MaxHeight(bh).Render(b.String())
 }
 
-// window returns the slice of visible indices that fit the list viewport, kept
-// scrolled so the cursor stays on screen.
+// window returns the visible-index slice that fits the list, scrolled to keep
+// the cursor on screen.
 func (m auditModel) window() (start, end int) {
-	rowsShown := max(m.h-4, 1)
+	rows := m.bodyHeight()
 
 	start = 0
-	if m.cursor >= rowsShown {
-		start = m.cursor - rowsShown + 1
+	if m.cursor >= rows {
+		start = m.cursor - rows + 1
 	}
 
-	end = min(start+rowsShown, len(m.visible))
-
-	return start, end
+	return start, min(start+rows, len(m.visible))
 }
 
 func (m auditModel) pos() int {
@@ -269,15 +243,29 @@ func (m auditModel) pos() int {
 	return m.cursor + 1
 }
 
-// status renders a colored status token for a row.
-func status(r store.AuditRow) string {
+// rowStyle picks the list-line style: selection wins, then blocked, then failed.
+func rowStyle(r store.AuditRow, selected bool) lipgloss.Style {
+	switch {
+	case selected:
+		return auSel
+	case r.Blocked():
+		return auBlocked
+	case r.Exit != 0:
+		return auFail
+	default:
+		return auItem
+	}
+}
+
+// statusText is a fixed-width plain status token (no ANSI) for aligned columns.
+func statusText(r store.AuditRow) string {
 	switch {
 	case r.Blocked():
-		return auBlocked.Render("BLOCKED")
+		return "BLOCKED"
 	case r.Exit != 0:
-		return auFail.Render(fmt.Sprintf("exit=%-2d", r.Exit))
+		return fmt.Sprintf("exit=%-2d", r.Exit)
 	default:
-		return "ok     "
+		return "ok"
 	}
 }
 
@@ -318,8 +306,7 @@ func runAuditTUI(st *store.Store, n int) int {
 		return 0
 	}
 
-	if _, err := tea.NewProgram(newAuditModel(rows), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
-		// Fall back to the compact text render if the TUI cannot start.
+	if _, err := tea.NewProgram(newAuditModel(rows), tea.WithAltScreen()).Run(); err != nil {
 		if terr := st.Tail(n, false, os.Stdout); terr != nil {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", terr)
 			return 1
