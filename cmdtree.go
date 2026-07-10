@@ -97,6 +97,8 @@ func gitcTree() cmdNode { //nolint:funlen // static command catalog
 		{Name: "install", Usage: "git install [--apply]", Short: "Install the PATH shim", Flags: installFlags},
 		{Name: "uninstall", Usage: "git uninstall", Short: "Remove the PATH shim"},
 		{Name: "cmdtree", Usage: "git cmdtree [-b|-c NAME|--json]", Short: "Display this command tree"},
+		{Name: "sh", Usage: "git gitc sh [args]", Short: "Launch the managed backend's POSIX sh (also the sh shim)"},
+		{Name: "bash", Usage: "git gitc bash [args]", Short: "Launch the managed backend's bash (also the bash shim)"},
 	}
 
 	var shortcuts []cmdNode
