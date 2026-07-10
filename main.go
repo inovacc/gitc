@@ -196,7 +196,12 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 		}
 
 		fmt.Printf("shim git: %s\n", res.ShimGit)
-		fmt.Printf("delegates to: %s\n", res.BackendPath)
+
+		if res.BackendPath != "" {
+			fmt.Printf("delegates to: %s\n", res.BackendPath)
+		} else {
+			fmt.Println("git backend: none yet — provisioned on the first git command (Windows) or via `git fetch-git`")
+		}
 
 		if res.PathApplied {
 			fmt.Println("PATH updated for the current user; restart your shell to activate.")
