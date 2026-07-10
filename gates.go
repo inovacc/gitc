@@ -52,7 +52,7 @@ func enforceGates(args []string, gitPath string) (int, bool) {
 		return code, true
 	}
 
-	return enforceSecretGate(pol, args)
+	return enforceSecretGate(pol, args, gitPath)
 }
 
 // gatedVerbs are the git subcommands the gates care about (secret gate + remote
@@ -323,8 +323,9 @@ func isExecFailure(err error) bool {
 
 // enforceSecretGate runs a working-tree secret scan before a gated command
 // (commit/push) and refuses when anything is found — or, in warn mode, reports
-// and proceeds.
-func enforceSecretGate(pol policy.Policy, args []string) (int, bool) {
+// and proceeds. It scans the repository the command actually targets (honoring
+// `-C`/`--git-dir`), not the process CWD.
+func enforceSecretGate(pol policy.Policy, args []string, gitPath string) (int, bool) {
 	if !pol.SecretGateApplies(args) {
 		return 0, false
 	}
@@ -335,7 +336,7 @@ func enforceSecretGate(pol policy.Policy, args []string) (int, bool) {
 		return 1, true
 	}
 
-	res, err := sc.ScanDir(".")
+	res, err := sc.ScanDir(secretScanDir(args, gitPath))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: secret gate: %v\n", err)
 		return 1, true
@@ -364,6 +365,25 @@ func enforceSecretGate(pol policy.Policy, args []string) (int, bool) {
 	fmt.Fprintln(os.Stderr, "gitc: BLOCKED — remove or scrub the secret(s), then retry.")
 
 	return 1, true
+}
+
+// secretScanDir resolves the working tree the command will actually operate on,
+// honoring the command's own `-C <dir>` / `--git-dir` / `--work-tree` globals, so
+// the secret gate scans the right repository rather than the process CWD (SEC-7).
+// It asks git itself (`<globals> rev-parse --show-toplevel`) and falls back to
+// "." when git cannot resolve a toplevel.
+func secretScanDir(args []string, gitPath string) string {
+	var globals []string
+	if idx := gitargs.SubcommandIndex(args); idx > 0 {
+		globals = args[:idx]
+	}
+
+	q := append(append([]string{}, globals...), "rev-parse", "--show-toplevel")
+	if out, err := gitQuery(gitPath, q...); err == nil && out != "" {
+		return out
+	}
+
+	return "."
 }
 
 // resolveRemoteURL runs `git remote get-url <name>` and returns the URL, or an

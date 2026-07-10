@@ -77,3 +77,10 @@ deferred as low value / high churn:
   config-based svn-remote (no positional URL) and `git bundle create <file>` /
   `git fast-export` exfil to a LOCAL file — neither fits a host allowlist. Gating
   them needs a separate "local exfil / svn-remote" policy dimension. Deferred.
+
+- **Secret gate: staged index + push commit-range scanning (SEC-7 residual).**
+  H-32 makes the gate scan the correct worktree (honoring -C/--git-dir). It still
+  scans the working TREE, not the staged index (what `commit` records) nor the
+  commit range a `push` sends (`git rev-list <remote>..<local>`). A secret
+  committed while the gate was off and removed from the worktree still ships on
+  push. Needs a gitleaks git-log/range mode in internal/scan. Deferred.

@@ -245,6 +245,43 @@ func TestAliasInjection(t *testing.T) {
 	}
 }
 
+// TestSecretScanDirHonorsGlobals is the SEC-7/H-32 regression: the secret gate
+// must scan the repo the command targets (`git -C /repo commit`), resolved via
+// git with the command's own globals, not the process CWD.
+func TestSecretScanDirHonorsGlobals(t *testing.T) {
+	var gotArgs []string
+
+	stubGitQuery(t, func(_ string, args ...string) (string, error) {
+		gotArgs = args
+		return "/resolved/top", nil
+	})
+
+	dir := secretScanDir([]string{"-C", "/repo", "commit", "-m", "x"}, "git")
+	if dir != "/resolved/top" {
+		t.Errorf("scan dir = %q, want the git-resolved toplevel", dir)
+	}
+
+	if len(gotArgs) < 4 || gotArgs[0] != "-C" || gotArgs[1] != "/repo" {
+		t.Errorf("the -C global must be forwarded to rev-parse: %v", gotArgs)
+	}
+
+	if gotArgs[len(gotArgs)-1] != "--show-toplevel" {
+		t.Errorf("expected a rev-parse --show-toplevel query, got %v", gotArgs)
+	}
+}
+
+// TestSecretScanDirFallsBackToCwd: when git cannot resolve a toplevel, scan the
+// current directory (prior behavior).
+func TestSecretScanDirFallsBackToCwd(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "", context.DeadlineExceeded
+	})
+
+	if dir := secretScanDir([]string{"commit"}, "git"); dir != "." {
+		t.Errorf("fallback scan dir = %q, want \".\"", dir)
+	}
+}
+
 func TestIsExecFailure(t *testing.T) {
 	if isExecFailure(nil) {
 		t.Error("nil is not a failure")
