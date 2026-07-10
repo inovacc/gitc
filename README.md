@@ -1,15 +1,15 @@
 # gitc
+<!-- rev:001 -->
 
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 ![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey)
 ![Use](https://img.shields.io/badge/use-internal%20%C2%B7%20corporate-8A2BE2)
-![Status](https://img.shields.io/badge/status-WIP-orange)
 
 > A drop-in **`git` for AI agent harnesses.** gitc transparently replaces `git`
-> so autonomous AI coding agents can't route around it — giving you a
-> **non-bypassable, forensically-audited gate** to stop agents from publishing
-> secrets or sensitive corporate data.
+> so autonomous AI coding agents can't route around it — a **non-bypassable,
+> forensically-audited gate** that *blocks* agents from publishing secrets or
+> reaching unapproved remotes.
 
 ## Purpose — a leak-prevention gate for AI agents
 
@@ -21,144 +21,138 @@ installs *as* `git` (a PATH-precedence shim), so an agent's every `git` call
 flows through it and can't be bypassed. That makes gitc a single, enforceable
 control point where you can:
 
-- **Audit** — an append-only forensic log of every git invocation an agent runs
-  (what, when, where, args, environment, result).
-- **Detect** — `git scan` flags secrets (gitleaks ruleset) before they leave.
+- **Audit** — an append-only, **tamper-evident** (hash-chained) forensic log of
+  every git invocation an agent runs (what, when, where, args, environment,
+  result). Credentials in URLs/auth headers are masked in the record.
+- **Detect** — `git scan` flags secrets (gitleaks ruleset) in the working tree
+  or in the audit log (`--audit`).
 - **Remediate** — `git scrub` purges secrets/paths from history.
-- **Gate** *(roadmap)* — hard pre-commit/pre-push gates that **block** an agent
-  from committing/pushing detected secrets or reaching unapproved remotes.
+- **Gate** — enforced pre-commit/pre-push gates that **block** an agent from
+  committing/pushing detected secrets or reaching unapproved remotes, driven by
+  a machine/org `policy.json` the agent can't override.
 
-Today gitc ships the audit trail + `scan` + `scrub`; the enforcing hard gates
-are the active direction (see [docs/ROADMAP.md](docs/ROADMAP.md)). Because the
-agent talks to what it believes is `git`, these controls apply without the
-agent's cooperation.
+Because the agent talks to what it believes is `git`, these controls apply
+without its cooperation.
 
 ## Quickstart
 
 ```bash
-# 1. Build gitc
-task build                       # or: go build -o gitc .
-
-# 2. Install the PATH shim so `git` resolves to gitc (transparent, audited)
+# 1. Install the PATH shim so `git` resolves to gitc (transparent, audited).
 gitc gitc install --apply        # Windows: prepends the shim dir to your user PATH
 #                                  (omit --apply to just print the PATH step to run)
 # then restart your shell
 
-# 3. Use git exactly as before — every invocation is now logged
+# 2. Use git exactly as before — every invocation is logged.
 git status
 git commit -m "message"          # forwarded to real git, recorded in the audit log
 
-# 4. gitc's own commands, first-class
+# 3. gitc's own commands, first-class.
 git scan                         # detect secrets in the working tree (exit 1 if found)
-git audit 20                     # show the last 20 audited invocations
-git scrub --path secrets.env --invert-paths --force   # purge a file from all history
-git sync                         # fetch + rebase + push
-git gitc where                   # resolved git backend + audit DB path
-git gitc                         # gitc self-info + full command list
+git audit                        # last invocations (compact); --wide for full; --verify the chain
+git doctor                       # health-check the install, backend, PATH shim, audit DB
+git update --apply               # self-update from GitHub releases (sha256-verified)
 ```
 
+On a **fresh Windows machine with no git**, `install` still succeeds and the
+first `git` command **auto-provisions** a pinned, sha256-verified git backend —
+no manual setup. On Linux/macOS, gitc uses the system git.
+
 Before the shim is installed the binary is named `gitc`, so run its commands as
-`gitc <cmd>` (e.g. `gitc gitc install`, `gitc scan`). Once installed on PATH as
-`git`, the same commands run as `git <cmd>`. `git scrub` prints a plan and
-refuses to touch history unless you pass `--force` (or `--dry-run` to preview).
+`gitc gitc <cmd>` (e.g. `gitc gitc install`). Once on PATH as `git`, they run as
+`git <cmd>`.
 
 ## Commands
 
-gitc-native commands are first-class (`git <cmd>`); anything not listed here
-passes through to real git and is audited. Names that collide with real git
-(`clean`, `version`) are reached via the `git gitc <cmd>` namespace instead.
+gitc-native commands are first-class (`git <cmd>`); anything not listed passes
+through to real git and is audited. Names that collide with real git (`clean`,
+`version`) are reached via the `git gitc <cmd>` namespace. `git <cmd> --help`
+prints a command's usage.
 
 | Command | Description |
 |---------|-------------|
-| `git scan [path]` | Detect secrets (gitleaks ruleset); exit 1 if any found — CI-usable |
+| `git scan [path]` | Detect secrets (gitleaks); exit 1 if any found. `--strict` fails on unreadable files; `--audit` scans the audit DB's argv/env |
 | `git scrub [opts]` | Rewrite history: purge paths / redact text. Plan-by-default; `--force` applies, `--dry-run` previews |
-| `git audit [N]` | Show the last N audited invocations (default 20) |
-| `git where` | Show the resolved git backend and audit DB path |
-| `git install [--apply]` | Install the PATH shim (`--apply` prepends PATH) |
-| `git uninstall` | Remove the PATH shim |
-| `git fetch-git [--latest\|--list]` | Download a git backend (pinned MinGit by default; sha256-verified) |
-| `git sync` | fetch + rebase onto upstream + push |
-| `git undo` | Soft-reset the last commit (keeps changes staged) |
-| `git log-graph` | Decorated commit graph across all refs |
-| `git quick-commit <msg>` | `git add -A` + `git commit -m <msg>` |
-| `git gitc` | gitc self-info (version, backend, audit path) + command list |
-| `git gitc version` | gitc's own version (real `git version` still passes through) |
+| `git audit [N]` | Last N invocations, compact. `--wide` full record; `--verify` checks the tamper-evident hash chain |
+| `git doctor` | Health-check: shim, PATH shadowing, backend resolves + executes, audit DB |
+| `git update [--check\|--apply]` | Self-update from GitHub releases (verifies sha256 + size before swap) |
+| `git fetch-git [--latest\|--list]` | Download a git backend (in-code sha256-pinned MinGit by default) |
+| `git where` | Resolved git backend + audit DB path |
+| `git install [--apply]` / `git uninstall` | Install / remove the PATH shim |
+| `git cmdtree [-b\|-c NAME\|--json]` | Show the full command tree |
+| `git sync` / `undo` / `log-graph` / `quick-commit <msg>` | Built-in shortcuts |
+| `git gitc [version]` | gitc self-info / its own version |
 
-`git scrub` flags: `--path <p>` (repeatable), `--invert-paths`, `--replace-text <file>`,
-`--prune auto\|always\|never`, `--dry-run`, `--force`.
+## Enforcement (policy.json)
 
-## Build
+Drop a `policy.json` in the gitc data dir (`%LOCALAPPDATA%\gitc\policy.json`;
+`~/.local/share/gitc/` on XDG) to turn gitc from *detection* into *enforcement*.
+gitc reads it **read-only** — a git flag can't override it. An absent file means
+no enforcement.
 
-```bash
-task build      # or: go build ./...
+```json
+{
+  "version": 1,
+  "secretGate":      { "enabled": true, "mode": "block" },
+  "remoteAllowlist": { "enabled": true, "hosts": ["github.com/inovacc"] }
+}
 ```
 
-## Test
-
-```bash
-task test       # fast tests
-task test:full  # full suite
-```
+- **secretGate** — runs a working-tree secret scan before a `commit`/`push` and
+  **refuses** (non-zero, git never runs) on any finding. `mode: "warn"` reports
+  but proceeds.
+- **remoteAllowlist** — blocks `push`/`fetch`/`clone`/`pull`/`remote` to a host
+  (or `host/owner`) not listed. It resolves named and default remotes
+  (`git push origin`, bare `git push`) to their real URL, so the allowlist can't
+  be sidestepped with a configured remote.
 
 ## Git backend
 
-At runtime gitc execs a real git, resolving the backend in this order:
+At runtime gitc execs a real git, resolving in this order:
 
 1. `GITC_GIT_BACKEND` — an explicit path override.
-2. A **downloaded git** in the gitc cache (see `fetch-git` below).
+2. The **active managed git** recorded in `settings.json`.
 3. The first non-self `git` on PATH.
+4. On a git-less **Windows** machine: **auto-provision** the pinned MinGit.
 
-On Windows with no git available, download one:
-
-```bash
-git fetch-git            # pinned MinGit from git_release.json — sha256-verified
-git fetch-git --latest   # newest git-for-windows release (via the releases API)
-git fetch-git --list     # list recent git-for-windows releases
-```
-
-`fetch-git` pulls a prebuilt **MinGit** from the
-[git-for-windows](https://github.com/git-for-windows/git/releases) releases,
-verifies it against the hash pinned in [`git_release.json`](git_release.json)
-(embedded in the binary at build time), and unpacks it into
-`%LOCALAPPDATA%\gitc\git\<version>\`. `git gitc where` shows which backend
-resolved. On Linux/macOS, use the system git (git-for-windows is Windows-only).
+Managed installs live under `%LOCALAPPDATA%\gitc\app/<uuidv7>/<version>/`
+(side-by-side, immutable); `settings.json` points at the active one, so updates
+are an atomic pointer flip with the previous kept for rollback and older
+installs GC'd. The pinned MinGit manifest (URL + sha256 per platform) is baked
+into the binary as Go source — not a swappable data file — and every download is
+sha256-verified. A throttled, single-flight background check keeps the backend
+current without blocking commands. `git gitc where` / `git doctor` show what
+resolved. On Linux/macOS, gitc uses the system git (git-for-windows is
+Windows-only).
 
 ## Defaults
 
-- **New repositories default to `main`.** When you run `git init` (proxied
-  through gitc) without choosing a branch, gitc injects `--initial-branch=main`
-  so new repos start on `main` instead of `master`. An explicit `-b`/
-  `--initial-branch` is always respected, and the flag is only added when the
-  backend git supports it (>= 2.28).
+- **New repositories default to `main`.** `git init` (proxied through gitc)
+  without an explicit branch injects `--initial-branch=main` (when the backend
+  git supports it, >= 2.28); an explicit `-b`/`--initial-branch` is respected.
 
-## Secret handling & remediation
+## Secret handling
 
-gitc records git argv and a git-relevant environment subset **raw and
-unredacted** by design, so secrets can land in the audit DB (protect it with
-owner-only filesystem permissions). Detect and remove secrets with the
-companion toolchain documented in [docs/REFERENCES.md](docs/REFERENCES.md):
+- The audit log records git argv and a git-relevant environment subset; **URL
+  userinfo and Authorization tokens are masked** in the stored record (the
+  backend still runs the real args). The DB lives under the user-scoped data
+  dir; hash-chaining makes deletion/edits detectable (`git audit --verify`).
+- **Detect:** `git scan` (working tree) / `git scan --audit` (the audit DB).
+- **Remove from history:** `git scrub` (a clean-room Go port of
+  [git-filter-repo](https://github.com/newren/git-filter-repo)).
 
-- **Detect:** `git scan [path]` runs the embedded
-  [gitleaks](https://github.com/gitleaks/gitleaks) ruleset over the working tree
-  and reports redacted findings (exit 1 if any are found, so it works as a CI
-  gate). Detection only — it never mutates. Use it alongside `git scrub`,
-  which removes detected secrets from history.
-- **Remove from history:**
-  [git-filter-repo](https://github.com/newren/git-filter-repo)
-  ([tutorial](https://andrewlock.net/rewriting-git-history-simply-with-git-filter-repo)),
-  [BFG Repo-Cleaner](https://github.com/rtyley/bfg-repo-cleaner)
+## Build & test
 
-Further planned integrations (a pre-flight secret gate, an audit-DB scrub tool)
-are tracked in [docs/BACKLOG.md](docs/BACKLOG.md).
+```bash
+task build      # or: go build ./...
+task test       # or: go test ./...
+```
 
 ## Scope & contributing
 
-gitc is an **internal, corporate-focused** tool: its design and roadmap are
-driven by enterprise leak-prevention needs for AI-agent harnesses, not
-general-purpose git tooling. It is provided **open source (BSD-3-Clause) — you
-are welcome to fork and contribute** — but it is tailored for corporate
-requirements and offered *as-is*; priorities follow those needs. If a change
-fits that mission, PRs are welcome.
+gitc is an **internal, corporate-focused** tool: design and roadmap follow
+enterprise leak-prevention needs for AI-agent harnesses. It is **open source
+(BSD-3-Clause) — fork and contribute welcome** — but tailored for corporate
+requirements and offered *as-is*. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## License
 
