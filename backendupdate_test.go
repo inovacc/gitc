@@ -18,6 +18,40 @@ func TestPinnedAvailableMatchesPlatform(t *testing.T) {
 	}
 }
 
+func TestCleanShimBackups(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("LOCALAPPDATA", base)
+	t.Setenv("XDG_DATA_HOME", base)
+
+	shim := paths.ShimDir()
+	if err := os.MkdirAll(shim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	keep := filepath.Join(shim, "git.exe")
+	if err := os.WriteFile(keep, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, old := range []string{"git.exe.old", "gitc.old"} {
+		if err := os.WriteFile(filepath.Join(shim, old), []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanShimBackups()
+
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("current shim must be kept: %v", err)
+	}
+
+	for _, old := range []string{"git.exe.old", "gitc.old"} {
+		if _, err := os.Stat(filepath.Join(shim, old)); !os.IsNotExist(err) {
+			t.Errorf("%s should have been swept", old)
+		}
+	}
+}
+
 func TestShellName(t *testing.T) {
 	t.Parallel()
 
