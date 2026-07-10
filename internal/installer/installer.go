@@ -67,15 +67,14 @@ func Install(applyPath bool) (Result, error) {
 		}
 	}
 
-	// On Windows also install sh/bash launcher shims (copies of gitc that
-	// self-detect their name and exec the managed backend's shell), so scripts
-	// and hooks that call sh/bash resolve even with no system shell installed.
+	// On Windows also install sh/bash launcher shims — the same gitc binary,
+	// which self-detects its name and execs the managed backend's shell, so
+	// scripts and hooks that call sh/bash resolve even with no system shell.
+	// These are HARD LINKS to the git shim (same dir = same volume), so all
+	// three names share one inode instead of three ~15 MB copies.
 	if runtime.GOOS == osWindows {
 		for _, name := range []string{"sh.exe", "bash.exe"} {
-			dst := filepath.Join(shimDir, name)
-			if !sameExe(self, dst) {
-				_ = copyExecutable(self, dst) // best-effort; not fatal to the install
-			}
+			_ = linkShim(shimGit, filepath.Join(shimDir, name)) // best-effort; not fatal
 		}
 	}
 
@@ -98,6 +97,24 @@ func Install(applyPath bool) (Result, error) {
 	res.Instruction = manualPathInstruction(shimDir)
 
 	return res, nil
+}
+
+// linkShim makes dst a hard link to src (same shim dir ⇒ same volume), so the
+// sh/bash shims share the git shim's bytes instead of duplicating them. dst is
+// recreated each install so it tracks the freshly-written git shim; on any link
+// failure (e.g. a filesystem without hard links) it falls back to a copy.
+func linkShim(src, dst string) error {
+	if sameExe(src, dst) {
+		return nil // already the same file
+	}
+
+	_ = os.Remove(dst)
+
+	if err := os.Link(src, dst); err == nil {
+		return nil
+	}
+
+	return copyExecutable(src, dst)
 }
 
 // sameExe reports whether two paths refer to the same executable — by cleaned
