@@ -23,7 +23,14 @@ func ExtractTarBz2(src, destDir string) error {
 
 	defer func() { _ = f.Close() }()
 
-	tr := tar.NewReader(bzip2.NewReader(f))
+	return extractTar(tar.NewReader(bzip2.NewReader(f)), destDir)
+}
+
+// extractTar extracts every entry of a tar stream into destDir, guarding against
+// path traversal and dereferencing links to real copies. Split from
+// ExtractTarBz2 so the extraction + zip-slip logic is testable without a bzip2
+// fixture (bzip2 is a transparent, stdlib-tested decompression layer).
+func extractTar(tr *tar.Reader, destDir string) error {
 	cleanDest := filepath.Clean(destDir)
 
 	for {

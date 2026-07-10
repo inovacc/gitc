@@ -10,6 +10,82 @@ import (
 	"github.com/inovacc/gitc/internal/policy"
 )
 
+// plantSecretRepo writes a working tree containing a detectable secret — a
+// Stripe live-key-formatted token, which the gitleaks default ruleset matches
+// reliably without tripping the "test"/"example" allowlist stopwords.
+func plantSecretRepo(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	// Assemble the token from split literals so the SOURCE file never contains a
+	// contiguous provider-format secret (GitHub push-protection scans file bytes);
+	// at runtime the full token is written to the temp file for gitleaks to find.
+	body := "stripe_key = sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc\n"
+
+	if err := os.WriteFile(filepath.Join(dir, "config.env"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
+// TestSecretGateBlocksAndWarns (H-15/COV-1) exercises the secret-gate wiring:
+// block on a finding, warn-mode proceed, and no-op on a non-gated command.
+func TestSecretGateBlocksAndWarns(t *testing.T) {
+	dir := plantSecretRepo(t)
+	stubGitQuery(t, func(string, ...string) (string, error) { return dir, nil }) // secretScanDir -> dir
+
+	block := policy.Policy{SecretGate: policy.SecretGate{Enabled: true}}
+	if code, blocked := enforceSecretGate(block, []string{"commit", "-m", "x"}, "git"); !blocked || code != 1 {
+		t.Errorf("secret gate must block a planted secret, got code=%d blocked=%v", code, blocked)
+	}
+
+	warn := policy.Policy{SecretGate: policy.SecretGate{Enabled: true, Mode: "warn"}}
+	if _, blocked := enforceSecretGate(warn, []string{"commit"}, "git"); blocked {
+		t.Error("warn mode must proceed despite findings")
+	}
+
+	if _, blocked := enforceSecretGate(block, []string{"status"}, "git"); blocked {
+		t.Error("secret gate must not apply to a non-gated command")
+	}
+}
+
+// TestResolveDefaultRemoteFollowsPush (H-15/COV-4) covers the @{push} -> named
+// remote resolution used for a bare `git push`.
+func TestResolveDefaultRemoteFollowsPush(t *testing.T) {
+	stubGitQuery(t, func(_ string, args ...string) (string, error) {
+		switch args[0] {
+		case "rev-parse":
+			return "upstream/main", nil
+		case "remote":
+			if args[2] != "upstream" {
+				t.Errorf("default remote should resolve @{push}'s remote 'upstream', asked %q", args[2])
+			}
+
+			return "https://internal.example/x", nil
+		}
+
+		return "", nil
+	})
+
+	url, err := resolveDefaultRemote("git")
+	if err != nil || url != "https://internal.example/x" {
+		t.Errorf("resolveDefaultRemote = %q err=%v", url, err)
+	}
+}
+
+// TestResolvePolicyMalformedFailsClosed (H-15) confirms a broken policy file
+// surfaces an error so enforceGates fails closed.
+func TestResolvePolicyMalformedFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	machine := filepath.Join(dir, "policy.json")
+	writeFile(t, machine, "{ this is not valid json")
+
+	if _, _, err := resolvePolicy(machine, filepath.Join(dir, "u.json"), filepath.Join(dir, "ENFORCE")); err == nil {
+		t.Error("a malformed policy must return an error (fail closed), got nil")
+	}
+}
+
 // writeFile is a test helper that writes data or fails the test.
 func writeFile(t *testing.T, path string, data string) {
 	t.Helper()
