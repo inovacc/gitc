@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/inovacc/gitc/internal/backend"
+	"github.com/inovacc/gitc/internal/provision"
 )
 
 // shellName returns "sh" or "bash" when the program was invoked under that name
@@ -33,7 +34,7 @@ func shellName(arg0 string) string {
 func runShell(name string, args []string) int {
 	self, _ := os.Executable()
 
-	b, err := backend.Resolve(managedGitPath(), self)
+	b, err := backend.Resolve(provision.ManagedGitPath(), self)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc %s: %v\n", name, err)
 		return 1
