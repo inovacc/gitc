@@ -63,7 +63,7 @@ type Record struct {
 	Identity    string            // resolved identity, if any
 	Cwd         string            // working directory
 	Argv        []string          // argv passed to the backend (URL/auth credentials masked)
-	EnvSubset   map[string]string // captured git-relevant env vars, raw values
+	EnvSubset   map[string]string // captured git-relevant env vars, credential-masked
 	Backend     string            // "vendored" | "system"
 	BackendPath string            // resolved absolute backend binary path
 	Mode        string            // "passthrough" | "shortcut"

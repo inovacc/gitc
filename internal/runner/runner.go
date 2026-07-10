@@ -25,7 +25,9 @@ import (
 )
 
 // envCaptureExact and envCapturePrefix define which environment variables are
-// recorded. Values are stored raw and unredacted; only the key set is filtered.
+// recorded. Values are credential-masked (redact.String) before storage, since
+// GIT_-prefixed vars — notably GIT_CONFIG_PARAMETERS — can carry an Authorization
+// header or a URL with userinfo that must not persist raw in the audit DB.
 var (
 	envCaptureExact  = []string{"SSH_AUTH_SOCK", "PATH"}
 	envCapturePrefix = []string{"GIT_"}
@@ -226,7 +228,8 @@ func (r *Runner) writeAudit(rec store.Record) {
 	}
 }
 
-// captureEnv returns the git-relevant environment subset with raw values.
+// captureEnv returns the git-relevant environment subset with credential-masked
+// values (URL userinfo and Authorization tokens stripped).
 func captureEnv() map[string]string {
 	out := make(map[string]string)
 
@@ -238,7 +241,7 @@ func captureEnv() map[string]string {
 
 		key, val := kv[:eq], kv[eq+1:]
 		if matchEnv(key) {
-			out[key] = val
+			out[key] = redact.String(val)
 		}
 	}
 
