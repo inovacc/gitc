@@ -52,22 +52,57 @@ type Release struct {
 	Assets     []Asset `json:"assets"`
 }
 
+// maxAttempts and retryBackoff bound the retry of transient request failures
+// (connection errors and 5xx responses). A failure mid-body is not retried here
+// (no range-resume); the caller sees the read error.
+const (
+	maxAttempts  = 3
+	retryBackoff = 500 * time.Millisecond
+)
+
 func httpDo(ctx context.Context, url string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	// GitHub requires a User-Agent; an optional token raises the rate limit.
-	req.Header.Set("User-Agent", "gitc")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
-
 	client := &http.Client{Timeout: 5 * time.Minute}
 
-	return client.Do(req)
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		// GitHub requires a User-Agent; an optional token raises the rate limit.
+		req.Header.Set("User-Agent", "gitc")
+		req.Header.Set("Accept", "application/vnd.github+json")
+
+		if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode < http.StatusInternalServerError {
+			return resp, nil // success or a non-retryable 4xx (caller vets status)
+		}
+
+		if resp != nil {
+			_ = resp.Body.Close()
+
+			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt) * retryBackoff):
+		}
+	}
+
+	return nil, fmt.Errorf("request %s: %w", url, lastErr)
 }
 
 // Latest returns the latest non-prerelease git-for-windows release.

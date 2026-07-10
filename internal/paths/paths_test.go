@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -34,6 +35,25 @@ func TestManagedGitPathEmptyWhenNoCache(t *testing.T) {
 
 	if got := ManagedGitPath(); got != "" {
 		t.Errorf("expected empty managed path with no cache, got %q", got)
+	}
+}
+
+func TestManagedGitPathFindsCachedInstall(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("LOCALAPPDATA", base)
+	t.Setenv("XDG_DATA_HOME", base)
+
+	gitExe := filepath.Join(GitCacheDir(), "v2.55.0.windows.2", "cmd", "git.exe")
+	if err := os.MkdirAll(filepath.Dir(gitExe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(gitExe, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ManagedGitPath(); got != gitExe {
+		t.Errorf("ManagedGitPath() = %q, want %q", got, gitExe)
 	}
 }
 
