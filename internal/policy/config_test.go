@@ -61,15 +61,10 @@ func TestSecretGateApplies(t *testing.T) {
 	}
 }
 
-func TestRemoteAllowlist(t *testing.T) {
+func TestRemoteAllowed(t *testing.T) {
 	t.Parallel()
 
 	p := Policy{RemoteAllow: RemoteAllowlist{Enabled: true, Hosts: []string{"github.com/inovacc"}}}
-
-	urls := p.RemoteURLsToCheck([]string{"push", "https://github.com/evil/x.git"})
-	if len(urls) != 1 {
-		t.Fatalf("expected 1 url to check, got %v", urls)
-	}
 
 	if p.RemoteAllowed("https://github.com/evil/x.git") {
 		t.Error("github.com/evil should be blocked")
@@ -83,23 +78,55 @@ func TestRemoteAllowlist(t *testing.T) {
 		t.Error("scp-style inovacc remote should be allowed")
 	}
 
-	// Disabled allowlist checks nothing and permits everything.
 	off := Policy{RemoteAllow: RemoteAllowlist{Enabled: false}}
-	if off.RemoteURLsToCheck([]string{"push", "https://x/y"}) != nil || !off.RemoteAllowed("https://anything/x") {
-		t.Error("disabled allowlist must be permissive")
+	if !off.RemoteAllowed("https://anything/x") {
+		t.Error("disabled allowlist must permit everything")
 	}
 }
 
-func TestRemoteURLsToCheckIgnoresNonRemote(t *testing.T) {
+func TestRemoteRefs(t *testing.T) {
 	t.Parallel()
 
 	p := Policy{RemoteAllow: RemoteAllowlist{Enabled: true, Hosts: []string{"github.com"}}}
 
-	if got := p.RemoteURLsToCheck([]string{"status"}); got != nil {
-		t.Errorf("status has no remote URLs, got %v", got)
+	// Explicit URL argument.
+	if refs, def := p.RemoteRefs([]string{"push", "https://github.com/evil/x.git"}); len(refs) != 1 || def {
+		t.Errorf("url push: refs=%v default=%v", refs, def)
 	}
 
-	if got := p.RemoteURLsToCheck([]string{"push", "origin", "main"}); got != nil {
-		t.Errorf("a named remote is not a URL, got %v", got)
+	// Named remote → returned as a ref (the caller resolves it to a URL).
+	if refs, def := p.RemoteRefs([]string{"push", "origin", "main"}); len(refs) != 1 || refs[0] != "origin" || def {
+		t.Errorf("named remote: refs=%v default=%v", refs, def)
+	}
+
+	// Bare push → uses the default/implicit remote.
+	if refs, def := p.RemoteRefs([]string{"-c", "x=y", "push"}); refs != nil || !def {
+		t.Errorf("bare push should use default remote: refs=%v default=%v", refs, def)
+	}
+
+	// Non-remote command and disabled allowlist → nothing to check.
+	if refs, _ := p.RemoteRefs([]string{"status"}); refs != nil {
+		t.Errorf("status is not remote-facing: %v", refs)
+	}
+
+	off := Policy{RemoteAllow: RemoteAllowlist{Enabled: false}}
+	if refs, def := off.RemoteRefs([]string{"push", "origin"}); refs != nil || def {
+		t.Error("disabled allowlist yields no refs")
+	}
+}
+
+func TestSecretGateMode(t *testing.T) {
+	t.Parallel()
+
+	if !(SecretGate{}).Blocks() {
+		t.Error("default (empty) mode should block")
+	}
+
+	if !(SecretGate{Mode: "block"}).Blocks() {
+		t.Error("block mode should block")
+	}
+
+	if (SecretGate{Mode: "warn"}).Blocks() {
+		t.Error("warn mode should not block")
 	}
 }

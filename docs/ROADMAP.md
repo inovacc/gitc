@@ -76,9 +76,12 @@ Total **42.9%** (`go test -cover ./...`).
 
 - [ ] Raise coverage toward **≥ 70%** — `runner`, `installer`, `shortcut`, and
       `main` are still thin.
-- [ ] Secret-gate **severity threshold** (warn vs block per finding severity).
-- [ ] Remote allowlist for **named remotes** (resolve `git push origin`), not
-      only URL arguments.
+- [x] Secret-gate **mode** (`policy.secretGate.mode: block|warn`) — warn reports
+      findings and proceeds; block (default) refuses. (Per-severity thresholds
+      aren't feasible — gitleaks findings carry no severity.)
+- [x] Remote allowlist for **named + default remotes** — resolves `git push
+      origin` (and a bare `git push`) to the actual remote URL before vetting,
+      closing the URL-only bypass.
 - [ ] Context threading (H-12/H-13) and `gitwin` download retry (deferred
       hardening — see [BACKLOG.md](BACKLOG.md)).
 
