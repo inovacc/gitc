@@ -12,12 +12,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -26,18 +24,16 @@ import (
 	"github.com/inovacc/gitc/internal/doctor"
 	"github.com/inovacc/gitc/internal/enrich"
 	"github.com/inovacc/gitc/internal/filterrepo"
-	"github.com/inovacc/gitc/internal/gitwin"
 	"github.com/inovacc/gitc/internal/installer"
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/policy"
+	"github.com/inovacc/gitc/internal/provision"
 	"github.com/inovacc/gitc/internal/router"
 	"github.com/inovacc/gitc/internal/runner"
 	"github.com/inovacc/gitc/internal/scan"
 	"github.com/inovacc/gitc/internal/selfupdate"
-	"github.com/inovacc/gitc/internal/settings"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
-	"github.com/inovacc/gitc/internal/uuidv7"
 )
 
 // version is injected at build time via -ldflags "-X main.version=...".
@@ -67,7 +63,7 @@ func run(ctx context.Context, args []string) int {
 
 	// Audit store is best-effort: if it can't open, git still runs (the runner
 	// warns per invocation). Meta commands may need it read-only.
-	st, err := store.Open(auditDBPath())
+	st, err := store.Open(provision.AuditDBPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: audit log unavailable: %v\n", err)
 
@@ -95,7 +91,7 @@ func run(ctx context.Context, args []string) int {
 	// any exec if none is available.
 	self, _ := os.Executable()
 
-	b, err := resolveOrProvision(ctx, self)
+	b, err := provision.ResolveOrProvision(ctx, self, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 		return 1
@@ -127,34 +123,6 @@ func run(ctx context.Context, args []string) int {
 	}
 }
 
-// resolveOrProvision resolves the git backend, and on a git-less machine where
-// the pinned MinGit is available (Windows) it self-provisions on first run —
-// downloading and sha256-verifying the pinned git, activating it, then retrying.
-// Other platforms and background children surface ErrNoBackend unchanged (they
-// rely on a system git or an explicit `git fetch-git`).
-func resolveOrProvision(ctx context.Context, self string) (backend.Backend, error) {
-	b, err := backend.Resolve(managedGitPath(), self)
-	if err == nil {
-		return b, nil
-	}
-
-	if !errors.Is(err, backend.ErrNoBackend) || !pinnedAvailable() || os.Getenv("GITC_BACKGROUND") != "" {
-		return b, err
-	}
-
-	fmt.Fprintf(os.Stderr, "gitc: no git backend found; provisioning pinned git %s (first run)...\n",
-		gitwin.Pinned().Version)
-
-	gitExe, perr := installPinnedGit(ctx)
-	if perr != nil {
-		return backend.Backend{}, fmt.Errorf("%w (auto-provision failed: %v)", err, perr)
-	}
-
-	activateBackend(gitExe)
-
-	return backend.Resolve(managedGitPath(), self)
-}
-
 // runMeta handles gitc's own commands. They are reachable first-class as
 // `git <cmd>` (for names that don't collide with real git) and always via the
 // explicit `git gitc <cmd>` namespace. Bare `git gitc` prints gitc self-info.
@@ -182,14 +150,14 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 	case "where":
 		self, _ := os.Executable()
 
-		b, err := backend.Resolve(managedGitPath(), self)
+		b, err := backend.Resolve(provision.ManagedGitPath(), self)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 			return 1
 		}
 
 		fmt.Printf("backend: %s (%s)\n", b.Path, b.Kind)
-		fmt.Printf("audit:   %s\n", auditDBPath())
+		fmt.Printf("audit:   %s\n", provision.AuditDBPath())
 
 		return 0
 	case "audit":
@@ -239,14 +207,14 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 	case "scan":
 		return runScan(args[1:])
 	case "fetch-git":
-		return runFetchGit(ctx, args[1:])
+		return provision.FetchGit(ctx, args[1:])
 	case "update":
 		return runUpdate(ctx, args[1:])
 	case "doctor":
 		return doctor.Run(doctor.Config{
 			Version:        version,
-			ManagedGitPath: managedGitPath(),
-			AuditDBPath:    auditDBPath(),
+			ManagedGitPath: provision.ManagedGitPath(),
+			AuditDBPath:    provision.AuditDBPath(),
 		}, args[1:])
 	case "cmdtree":
 		return cmdtree.Run(args[1:])
@@ -262,237 +230,6 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 
 		return 2
 	}
-}
-
-// runFetchGit downloads a git backend (git-for-windows MinGit) into a fresh
-// app/<uuid>/ install and activates it via settings.json. By default it uses the
-// in-code hash-pinned manifest (gitwin.Pinned); --latest queries the
-// git-for-windows releases API for the newest version (no pinned hash); --list
-// shows recent releases.
-func runFetchGit(ctx context.Context, args []string) int {
-	var list, latest, acceptUnverified, busybox, full, minimal bool
-
-	for _, a := range args {
-		switch a {
-		case "--list":
-			list = true
-		case "--latest":
-			latest = true
-		case "--i-accept-unverified":
-			acceptUnverified = true
-		case "--busybox":
-			busybox = true
-		case "--full":
-			full = true
-		case "--minimal":
-			minimal = true
-		default:
-			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
-			return 2
-		}
-	}
-
-	switch {
-	case list:
-		return fetchGitList(ctx)
-	case latest:
-		return fetchGitLatest(ctx, acceptUnverified)
-	case busybox:
-		return fetchGitFlavor(ctx, "busybox")
-	case full:
-		return fetchGitFlavor(ctx, "full")
-	case minimal:
-		return fetchGitFlavor(ctx, "minimal")
-	default:
-		return fetchGitFlavor(ctx, currentFlavor())
-	}
-}
-
-// defaultFlavor is the backend flavor used when settings.json records none — the
-// full git build, so every machine gets a bash-capable git (working `#!/bin/sh`
-// and `#!/bin/bash` hooks) out of the box with no per-machine step.
-const defaultFlavor = "full"
-
-// manifestForFlavor maps a backend flavor to its in-code pinned manifest.
-// An empty flavor uses defaultFlavor. "minimal" forces the shell-less MinGit.
-func manifestForFlavor(flavor string) gitwin.Manifest {
-	if flavor == "" {
-		flavor = defaultFlavor
-	}
-
-	switch flavor {
-	case "busybox":
-		return gitwin.PinnedBusybox()
-	case "full":
-		return gitwin.PinnedFull()
-	default:
-		return gitwin.Pinned()
-	}
-}
-
-// resolveInstallManifest picks the manifest to install for flavor, falling back
-// when the chosen flavor has no build for this platform — the full git has no
-// 32-bit build, so windows/386 falls back to busybox (still a shell) then to the
-// minimal MinGit.
-func resolveInstallManifest(flavor string) gitwin.Manifest {
-	if m := manifestForFlavor(flavor); manifestHasArch(m) {
-		return m
-	}
-
-	if bb := gitwin.PinnedBusybox(); manifestHasArch(bb) {
-		return bb
-	}
-
-	return gitwin.Pinned()
-}
-
-func manifestHasArch(m gitwin.Manifest) bool {
-	_, ok := m.For(runtime.GOOS, runtime.GOARCH)
-	return ok
-}
-
-// currentFlavor returns the persisted backend flavor ("" when unset = minimal).
-func currentFlavor() string {
-	s, err := settings.Load(paths.SettingsPath())
-	if err != nil {
-		return ""
-	}
-
-	return s.Backend.Flavor
-}
-
-// fetchGitFlavor provisions the pinned backend for flavor and, on success,
-// persists the flavor so updates and auto-provision on this machine keep it.
-func fetchGitFlavor(ctx context.Context, flavor string) int {
-	code := fetchGitPinnedManifest(ctx, resolveInstallManifest(flavor))
-	if code == 0 {
-		persistFlavor(flavor)
-	}
-
-	return code
-}
-
-// persistFlavor records the chosen backend flavor in settings.json.
-func persistFlavor(flavor string) {
-	sp := paths.SettingsPath()
-
-	s, err := settings.LoadOrInit(sp)
-	if err != nil || s.Backend.Flavor == flavor {
-		return
-	}
-
-	s.Backend.Flavor = flavor
-	_ = settings.Save(sp, s)
-}
-
-// fetchGitList prints the recent git-for-windows release tags.
-func fetchGitList(ctx context.Context) int {
-	rels, err := gitwin.List(ctx, 10)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
-
-	for _, r := range rels {
-		fmt.Println(r.Tag)
-	}
-
-	return 0
-}
-
-// fetchGitLatest downloads the newest git-for-windows release. It is UNPINNED
-// (no sha256 to verify against), so it refuses unless the operator opted in with
-// --i-accept-unverified.
-func fetchGitLatest(ctx context.Context, acceptUnverified bool) int {
-	if !acceptUnverified {
-		fmt.Fprintln(os.Stderr, "gitc fetch-git --latest downloads an UNPINNED git with no sha256 verification.")
-		fmt.Fprintln(os.Stderr, "Prefer `git fetch-git` (in-code hash-pinned + verified).")
-		fmt.Fprintln(os.Stderr, "To override and accept an unverified binary, re-run with --i-accept-unverified.")
-
-		return 1
-	}
-
-	rel, err := gitwin.Latest(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
-
-	base, err := newInstallBase()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
-
-	fmt.Fprintf(os.Stderr, "warning: installing UNVERIFIED git-for-windows %s (%s)\n", rel.Tag, runtime.GOARCH)
-
-	gitExe, err := gitwin.Ensure(ctx, rel, runtime.GOARCH, base)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
-
-	activateBackend(gitExe)
-	fmt.Printf("installed (UNVERIFIED, --i-accept-unverified) and activated: %s\n", gitExe)
-
-	return 0
-}
-
-// pinnedAvailable reports whether the in-code pinned manifest has a git build
-// for this platform (git-for-windows MinGit is Windows-only).
-func pinnedAvailable() bool {
-	_, ok := gitwin.Pinned().For(runtime.GOOS, runtime.GOARCH)
-	return ok
-}
-
-// installPinnedGit downloads and sha256-verifies the in-code pinned MinGit into
-// a fresh app/<uuid>/ install and returns the git.exe path (not yet activated).
-func installPinnedGit(ctx context.Context) (string, error) {
-	m := resolveInstallManifest(currentFlavor())
-
-	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
-	if !ok {
-		return "", fmt.Errorf("no pinned git for %s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-
-	base, err := newInstallBase()
-	if err != nil {
-		return "", err
-	}
-
-	return m.EnsurePinned(ctx, asset, base)
-}
-
-// fetchGitPinnedManifest downloads an in-code hash-pinned manifest (standard or
-// busybox MinGit), verifies its sha256, installs it under app/<uuid>/, and
-// activates it.
-func fetchGitPinnedManifest(ctx context.Context, m gitwin.Manifest) int {
-	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned %s for %s/%s; try --latest\n",
-			m.Flavor, runtime.GOOS, runtime.GOARCH)
-
-		return 1
-	}
-
-	fmt.Printf("fetching pinned %s %s (%s)...\n", m.Flavor, m.Version, asset.Name)
-
-	base, err := newInstallBase()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
-
-	gitExe, err := m.EnsurePinned(ctx, asset, base)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: %v\n", err)
-		return 1
-	}
-
-	activateBackend(gitExe)
-	fmt.Printf("installed, sha256-verified and activated: %s\n", gitExe)
-
-	return 0
 }
 
 // runUpdate implements `git update`: check the gitc GitHub releases for a newer
@@ -658,11 +395,11 @@ func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
 
 	self, _ := os.Executable()
-	if b, err := backend.Resolve(managedGitPath(), self); err == nil {
+	if b, err := backend.Resolve(provision.ManagedGitPath(), self); err == nil {
 		fmt.Printf("git backend: %s (%s)\n", b.Path, b.Kind)
 	}
 
-	fmt.Printf("audit log:   %s\n", auditDBPath())
+	fmt.Printf("audit log:   %s\n", provision.AuditDBPath())
 }
 
 // printMetaHelp lists gitc's native commands.
@@ -734,7 +471,7 @@ func runScrub(ctx context.Context, args []string) int {
 	// Resolve the real git backend so the rewrite never re-enters the gitc shim.
 	self, _ := os.Executable()
 
-	b, berr := backend.Resolve(managedGitPath(), self)
+	b, berr := backend.Resolve(provision.ManagedGitPath(), self)
 	if berr != nil {
 		fmt.Fprintf(os.Stderr, "git scrub: %v\n", berr)
 		return 1
@@ -961,7 +698,7 @@ func reportSkipped(skipped []scan.Skip) {
 // env of every audit-log row for secrets that slipped past write-time redaction,
 // printing the row id per finding. Exit 1 if any are found (CI-usable).
 func runScanAudit() int {
-	st, err := store.Open(auditDBPath())
+	st, err := store.Open(provision.AuditDBPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
 		return 1
@@ -1019,103 +756,4 @@ func cleanShimBackups() {
 			}
 		}
 	}
-}
-
-func auditDBPath() string {
-	if v := os.Getenv("GITC_AUDIT_DB"); v != "" {
-		return v
-	}
-
-	return paths.AuditDBPath()
-}
-
-func managedGitPath() string {
-	if v := os.Getenv("GITC_GIT_BACKEND"); v != "" {
-		return v
-	}
-
-	return resolveManagedGit()
-}
-
-// resolveManagedGit returns the active managed git.exe recorded in settings.json.
-// On first run (or when settings has no active backend) it lazily adopts a legacy
-// git\<tag> install by recording it in settings in place — no bulk move of a
-// possibly in-use install. Returns "" when no managed git is available.
-func resolveManagedGit() string {
-	sp := paths.SettingsPath()
-
-	s, err := settings.LoadOrInit(sp)
-	if err != nil {
-		// Settings unavailable: fall back to the legacy newest-on-disk scan so
-		// git still resolves.
-		return paths.ManagedGitPath()
-	}
-
-	if s.Backend.Active != "" {
-		gitExe := filepath.Join(paths.DataDir(), filepath.FromSlash(s.Backend.Active), "cmd", "git.exe")
-		if _, statErr := os.Stat(gitExe); statErr == nil {
-			return gitExe
-		}
-	}
-
-	// First run / stale pointer: adopt the legacy install if one exists.
-	legacy := paths.ManagedGitPath()
-	if legacy == "" {
-		return ""
-	}
-
-	if rel, relErr := installRel(legacy); relErr == nil {
-		s.Backend.Active = rel
-		_ = settings.Save(sp, s) // best-effort; resolution already succeeded
-	}
-
-	return legacy
-}
-
-// installRel returns a git.exe's install root (its <version> dir) relative to
-// DataDir, slash-separated as stored in settings.json.
-func installRel(gitExe string) (string, error) {
-	versionDir := filepath.Dir(filepath.Dir(gitExe)) // .../<version>/cmd/git.exe -> .../<version>
-
-	rel, err := filepath.Rel(paths.DataDir(), versionDir)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.ToSlash(rel), nil
-}
-
-// newInstallBase reserves a fresh UUIDv7-namespaced directory (app/<uuid>) for a
-// new managed-git install, so a download never touches the in-use install.
-func newInstallBase() (string, error) {
-	id, err := uuidv7.New()
-	if err != nil {
-		return "", fmt.Errorf("generate install id: %w", err)
-	}
-
-	return filepath.Join(paths.AppDir(), id), nil
-}
-
-// activateBackend records gitExe's install as the active backend in settings.json
-// (demoting the prior active to previous) and stamps the backend check time, so
-// the next invocation resolves the new install.
-func activateBackend(gitExe string) {
-	rel, err := installRel(gitExe)
-	if err != nil {
-		return
-	}
-
-	sp := paths.SettingsPath()
-
-	s, err := settings.LoadOrInit(sp)
-	if err != nil {
-		return
-	}
-
-	if s.Backend.Active != rel {
-		s.Backend.Previous = s.Backend.Active
-		s.Backend.Active = rel
-	}
-
-	_ = settings.Save(sp, s)
 }

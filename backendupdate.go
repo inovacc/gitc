@@ -6,12 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"time"
 
-	"github.com/inovacc/gitc/internal/gitwin"
 	"github.com/inovacc/gitc/internal/paths"
+	"github.com/inovacc/gitc/internal/provision"
 	"github.com/inovacc/gitc/internal/selfupdate"
 	"github.com/inovacc/gitc/internal/settings"
 )
@@ -128,46 +126,11 @@ func runBackendUpdate(ctx context.Context) int {
 		return 1
 	}
 
-	updateBackendIfStale(ctx, sp, &s)
+	provision.UpdateBackendIfStale(ctx, sp, &s)
 	recordGitcNotice(ctx)
-	gcInstalls(activeKeepSet(s))
+	provision.GcInstalls(provision.ActiveKeepSet(s))
 
 	return 0
-}
-
-// updateBackendIfStale installs and activates the in-code pinned git version
-// when the active backend is a different version. Only the verified pinned
-// channel is auto-applied; the unverified `latest` channel never is.
-func updateBackendIfStale(ctx context.Context, sp string, s *settings.Settings) {
-	if s.Update.Channel != settings.ChannelPinned {
-		return
-	}
-
-	pinned := gitwin.Pinned()
-	if filepath.Base(s.Backend.Active) == gitwin.VersionDir(pinned.Version) && activeGitExists(*s) {
-		return // already on the pinned version
-	}
-
-	asset, ok := pinned.For(runtime.GOOS, runtime.GOARCH)
-	if !ok {
-		return
-	}
-
-	base, err := newInstallBase()
-	if err != nil {
-		return
-	}
-
-	gitExe, err := pinned.EnsurePinned(ctx, asset, base)
-	if err != nil {
-		return
-	}
-
-	activateBackend(gitExe)
-
-	if reloaded, rerr := settings.Load(sp); rerr == nil {
-		*s = reloaded
-	}
 }
 
 // recordGitcNotice writes a one-line notice when a newer gitc release exists;
@@ -180,58 +143,4 @@ func recordGitcNotice(ctx context.Context) {
 
 	msg := fmt.Sprintf("a newer gitc is available: %s (run `git update --apply`)\n", info.Latest)
 	_ = os.WriteFile(noticePath(), []byte(msg), 0o600)
-}
-
-// activeGitExists reports whether the settings-active backend's git.exe is present.
-func activeGitExists(s settings.Settings) bool {
-	if s.Backend.Active == "" {
-		return false
-	}
-
-	gitExe := filepath.Join(paths.DataDir(), filepath.FromSlash(s.Backend.Active), "cmd", "git.exe")
-	_, err := os.Stat(gitExe)
-
-	return err == nil
-}
-
-// activeKeepSet returns the app/<uuid> directory names to retain: the active and
-// previous installs. Legacy (git/<version>) installs contribute no app uuid.
-func activeKeepSet(s settings.Settings) map[string]bool {
-	keep := map[string]bool{}
-
-	for _, rel := range []string{s.Backend.Active, s.Backend.Previous} {
-		if id := appUUID(rel); id != "" {
-			keep[id] = true
-		}
-	}
-
-	return keep
-}
-
-// appUUID returns the <uuid> segment of an app-relative install path
-// (app/<uuid>/<version>), or "" for a non-app (legacy) install.
-func appUUID(rel string) string {
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) >= 2 && parts[0] == "app" {
-		return parts[1]
-	}
-
-	return ""
-}
-
-// gcInstalls removes app/<uuid> install dirs whose uuid is not in keep, bounding
-// disk usage to the active + previous installs.
-func gcInstalls(keep map[string]bool) {
-	entries, err := os.ReadDir(paths.AppDir())
-	if err != nil {
-		return
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() || keep[e.Name()] {
-			continue
-		}
-
-		_ = os.RemoveAll(filepath.Join(paths.AppDir(), e.Name()))
-	}
 }
