@@ -39,8 +39,9 @@ type Settings struct {
 
 // Backend points at the active managed-git install (and a rollback target),
 // as paths relative to the gitc root. Flavor selects the provisioned variant
-// ("" = minimal MinGit | "busybox" = MinGit + POSIX sh | "full" = full git with
-// bash) and persists across updates and auto-provision on this machine.
+// ("" = default (full git with bash) | "minimal" = shell-less MinGit |
+// "busybox" = MinGit + POSIX sh | "full") and persists across updates and
+// auto-provision on this machine.
 type Backend struct {
 	Active   string `json:"active"`
 	Previous string `json:"previous,omitempty"`

@@ -112,7 +112,8 @@ At runtime gitc execs a real git, resolving in this order:
 1. `GITC_GIT_BACKEND` — an explicit path override.
 2. The **active managed git** recorded in `settings.json`.
 3. The first non-self `git` on PATH.
-4. On a git-less **Windows** machine: **auto-provision** the pinned MinGit.
+4. On a git-less **Windows** machine: **auto-provision** the pinned git (the
+   full, bash-capable build by default).
 
 Managed installs live under `%LOCALAPPDATA%\gitc\app/<uuidv7>/<version>/`
 (side-by-side, immutable); `settings.json` points at the active one, so updates
@@ -124,16 +125,17 @@ current without blocking commands. `git gitc where` / `git doctor` show what
 resolved. On Linux/macOS, gitc uses the system git (git-for-windows is
 Windows-only).
 
-The default MinGit is shell-less. For git hooks on a Windows box with no shell,
-provision a shell-bearing **backend flavor** (persisted in `settings.json` and
-kept across updates and auto-provision on that machine):
+gitc provisions the **full** git build by default (the pinned, sha256-verified
+`.tar.bz2`, extracted in-process — no installer is executed), so it carries real
+`bash` + `sh` and both `#!/bin/sh` and `#!/bin/bash` git hooks work out of the
+box, on every machine, with no per-machine step. The chosen **flavor** persists
+in `settings.json` and is kept across updates and auto-provision:
 
-- `git fetch-git --busybox` — busybox MinGit, bundles a POSIX `sh` (ash); runs
-  `#!/bin/sh` hooks. Smallest (~34 MB); 64/32-bit only.
-- `git fetch-git --full` — the complete git build (extracted from the pinned,
-  sha256-verified `.tar.bz2` in-process — no installer is executed), with real
-  `bash` + `sh`; runs `#!/bin/sh` **and** `#!/bin/bash` hooks. ~117 MB; 64-bit +
-  arm64.
+- *(default)* `git fetch-git --full` — full git; `bash` + `sh`. ~117 MB;
+  64-bit + arm64 (32-bit falls back to busybox).
+- `git fetch-git --busybox` — busybox MinGit, POSIX `sh` (ash); `#!/bin/sh`
+  hooks only. ~34 MB; 64/32-bit.
+- `git fetch-git --minimal` — shell-less MinGit; smallest (~38 MB), no hooks.
 
 ## Defaults
 

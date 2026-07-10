@@ -249,7 +249,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 // git-for-windows releases API for the newest version (no pinned hash); --list
 // shows recent releases.
 func runFetchGit(ctx context.Context, args []string) int {
-	var list, latest, acceptUnverified, busybox, full bool
+	var list, latest, acceptUnverified, busybox, full, minimal bool
 
 	for _, a := range args {
 		switch a {
@@ -263,6 +263,8 @@ func runFetchGit(ctx context.Context, args []string) int {
 			busybox = true
 		case "--full":
 			full = true
+		case "--minimal":
+			minimal = true
 		default:
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
 			return 2
@@ -278,14 +280,25 @@ func runFetchGit(ctx context.Context, args []string) int {
 		return fetchGitFlavor(ctx, "busybox")
 	case full:
 		return fetchGitFlavor(ctx, "full")
+	case minimal:
+		return fetchGitFlavor(ctx, "minimal")
 	default:
 		return fetchGitFlavor(ctx, currentFlavor())
 	}
 }
 
-// manifestForFlavor maps a backend flavor to its in-code pinned manifest:
-// "busybox" (MinGit + POSIX sh), "full" (full git with bash), else minimal MinGit.
+// defaultFlavor is the backend flavor used when settings.json records none — the
+// full git build, so every machine gets a bash-capable git (working `#!/bin/sh`
+// and `#!/bin/bash` hooks) out of the box with no per-machine step.
+const defaultFlavor = "full"
+
+// manifestForFlavor maps a backend flavor to its in-code pinned manifest.
+// An empty flavor uses defaultFlavor. "minimal" forces the shell-less MinGit.
 func manifestForFlavor(flavor string) gitwin.Manifest {
+	if flavor == "" {
+		flavor = defaultFlavor
+	}
+
 	switch flavor {
 	case "busybox":
 		return gitwin.PinnedBusybox()
@@ -294,6 +307,27 @@ func manifestForFlavor(flavor string) gitwin.Manifest {
 	default:
 		return gitwin.Pinned()
 	}
+}
+
+// resolveInstallManifest picks the manifest to install for flavor, falling back
+// when the chosen flavor has no build for this platform — the full git has no
+// 32-bit build, so windows/386 falls back to busybox (still a shell) then to the
+// minimal MinGit.
+func resolveInstallManifest(flavor string) gitwin.Manifest {
+	if m := manifestForFlavor(flavor); manifestHasArch(m) {
+		return m
+	}
+
+	if bb := gitwin.PinnedBusybox(); manifestHasArch(bb) {
+		return bb
+	}
+
+	return gitwin.Pinned()
+}
+
+func manifestHasArch(m gitwin.Manifest) bool {
+	_, ok := m.For(runtime.GOOS, runtime.GOARCH)
+	return ok
 }
 
 // currentFlavor returns the persisted backend flavor ("" when unset = minimal).
@@ -309,7 +343,7 @@ func currentFlavor() string {
 // fetchGitFlavor provisions the pinned backend for flavor and, on success,
 // persists the flavor so updates and auto-provision on this machine keep it.
 func fetchGitFlavor(ctx context.Context, flavor string) int {
-	code := fetchGitPinnedManifest(ctx, manifestForFlavor(flavor))
+	code := fetchGitPinnedManifest(ctx, resolveInstallManifest(flavor))
 	if code == 0 {
 		persistFlavor(flavor)
 	}
@@ -393,7 +427,7 @@ func pinnedAvailable() bool {
 // installPinnedGit downloads and sha256-verifies the in-code pinned MinGit into
 // a fresh app/<uuid>/ install and returns the git.exe path (not yet activated).
 func installPinnedGit(ctx context.Context) (string, error) {
-	m := manifestForFlavor(currentFlavor())
+	m := resolveInstallManifest(currentFlavor())
 
 	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
 	if !ok {
