@@ -21,10 +21,17 @@ type Policy struct {
 }
 
 // SecretGate blocks a gated git command when a working-tree secret scan finds
-// anything. Commands defaults to commit + push when empty.
+// anything. Commands defaults to commit + push when empty. Mode "warn" reports
+// findings but lets the command proceed; the default (empty / "block") refuses.
 type SecretGate struct {
 	Enabled  bool     `json:"enabled"`
 	Commands []string `json:"commands"`
+	Mode     string   `json:"mode"`
+}
+
+// Blocks reports whether a finding should refuse the command rather than warn.
+func (g SecretGate) Blocks() bool {
+	return g.Mode != "warn"
 }
 
 // RemoteAllowlist blocks push/fetch/clone to a URL whose host (or host/owner)
@@ -80,29 +87,74 @@ func (p Policy) SecretGateApplies(args []string) bool {
 	return false
 }
 
-// RemoteURLsToCheck returns the URL-looking arguments of a push/fetch/clone/
-// remote command that the allowlist should vet. It is empty when the allowlist
-// is disabled or the command is not remote-facing.
-func (p Policy) RemoteURLsToCheck(args []string) []string {
+// RemoteRefs returns the remote references a remote-facing command targets — URL
+// arguments and configured remote NAMES — for the allowlist to vet, plus whether
+// the command relies on an implicit/default remote (a bare `git push`), which the
+// caller resolves to the branch's configured remote. Empty when the allowlist is
+// disabled or the command is not remote-facing.
+func (p Policy) RemoteRefs(args []string) (refs []string, usesDefault bool) {
 	if !p.RemoteAllow.Enabled {
-		return nil
+		return nil, false
 	}
 
-	switch subcommandOf(args) {
-	case "push", "fetch", "clone", "remote", "pull":
+	idx := gitargs.SubcommandIndex(args)
+	if idx < 0 {
+		return nil, false
+	}
+
+	sub := args[idx]
+	switch sub {
+	case "push", "fetch", "pull", "clone", "remote":
 	default:
-		return nil
+		return nil, false
 	}
 
-	var urls []string
+	pos := positionals(args[idx+1:])
+
+	switch sub {
+	case "clone":
+		if len(pos) > 0 {
+			return pos[:1], false // the clone source URL
+		}
+
+		return nil, false
+	case "remote":
+		var urls []string
+
+		for _, a := range pos {
+			if IsRemoteURL(a) {
+				urls = append(urls, a) // e.g. `remote add <name> <url>`
+			}
+		}
+
+		return urls, false
+	default: // push / fetch / pull: the first positional is the remote (name or URL)
+		if len(pos) == 0 {
+			return nil, true
+		}
+
+		return pos[:1], false
+	}
+}
+
+// IsRemoteURL reports whether s is a network git remote URL (scheme:// or
+// scp-style git@host:path) rather than a configured remote name or local path.
+func IsRemoteURL(s string) bool {
+	return looksLikeRemoteURL(s)
+}
+
+// positionals returns the non-flag arguments (drops any token starting with
+// '-'); enough to locate the remote positional.
+func positionals(args []string) []string {
+	var out []string
 
 	for _, a := range args {
-		if looksLikeRemoteURL(a) {
-			urls = append(urls, a)
+		if !strings.HasPrefix(a, "-") {
+			out = append(out, a)
 		}
 	}
 
-	return urls
+	return out
 }
 
 // RemoteAllowed reports whether a remote URL's host (or host/owner) is permitted.

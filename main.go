@@ -99,8 +99,9 @@ func run(ctx context.Context, args []string) int {
 	default:
 		args := dec.Args
 		// Enforce the machine/org policy (secret gate, remote allowlist) before
-		// the command runs. A blocked command never reaches git.
-		if code, blocked := enforceGates(args); blocked {
+		// the command runs. A blocked command never reaches git. The backend path
+		// lets the allowlist resolve named/default remotes to their URLs.
+		if code, blocked := enforceGates(args, b.Path); blocked {
 			return code
 		}
 		// New repos default to `main`, not `master`, unless the user chose a
