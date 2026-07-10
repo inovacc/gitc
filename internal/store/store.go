@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -32,7 +33,27 @@ const openTimeout = 3 * time.Second
 // busyTimeoutMS is how long SQLite waits for a held lock before returning
 // SQLITE_BUSY, so concurrent gitc processes serialize their audit writes
 // instead of silently dropping them.
-const busyTimeoutMS = 3000
+const busyTimeoutMS = 5000
+
+// dataSourceName builds the modernc sqlite DSN. The pragmas are baked into the
+// connection string so every physical connection gets them:
+//
+//   - journal_mode=WAL: multiple gitc processes can read while one writes,
+//     without the whole-database EXCLUSIVE lock of the default rollback journal
+//     — the core fix for "database is locked" under concurrent invocations.
+//   - _txlock=immediate: Insert reads the hash-chain head and then appends in
+//     one transaction; taking the write lock up front (BEGIN IMMEDIATE) means two
+//     concurrent writers queue on the busy timeout instead of both grabbing a
+//     shared lock and deadlocking on the upgrade (which a busy timeout can't fix).
+//   - busy_timeout: wait for a held write lock instead of erroring immediately.
+//   - synchronous=NORMAL: durable under WAL and far fewer fsyncs than FULL.
+func dataSourceName(path string) string {
+	return path +
+		"?_txlock=immediate" +
+		"&_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMS) + ")" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)"
+}
 
 // Record is one forensic audit entry: everything gitc knows about a single
 // git invocation. Values are stored raw and unredacted by design.
@@ -71,26 +92,25 @@ func Open(path string) (*Store, error) {
 		_ = f.Close()
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", dataSourceName(path))
 	if err != nil {
 		return nil, fmt.Errorf("open audit db: %w", err)
 	}
 
-	// Serialize on a single connection so concurrent gitc processes writing the
-	// same audit DB wait on the busy timeout rather than racing to SQLITE_BUSY.
+	// Serialize this process on one durable connection: WAL + the busy timeout
+	// handle cross-process concurrency, and a single long-lived connection keeps
+	// the per-connection pragmas in effect for the process lifetime rather than
+	// racing to SQLITE_BUSY within the process.
 	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
 	defer cancel()
 
-	if err := db.PingContext(ctx); err != nil {
+	if err := pingWithRetry(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping audit db: %w", err)
-	}
-
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout=%d", busyTimeoutMS)); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set busy_timeout: %w", err)
 	}
 
 	s := &Store{db: db}
@@ -100,6 +120,46 @@ func Open(path string) (*Store, error) {
 	}
 
 	return s, nil
+}
+
+// pingWithRetry verifies connectivity, tolerating the transient SQLITE_BUSY that
+// a concurrent cold-start storm can produce while WAL is first being established
+// (once WAL exists, opens no longer switch journal mode and never hit this). The
+// per-connection busy timeout handles steady-state contention; this only covers
+// the brief first-init window so a startup race never drops auditing.
+func pingWithRetry(ctx context.Context, db *sql.DB) error {
+	var err error
+
+	for attempt := range 5 {
+		if err = db.PingContext(ctx); err == nil {
+			return nil
+		}
+
+		if !isBusy(err) {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 20 * time.Millisecond):
+		}
+	}
+
+	return err
+}
+
+// isBusy reports whether err is a SQLite lock/busy condition worth retrying.
+func isBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+
+	return strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "SQLITE_BUSY") ||
+		strings.Contains(msg, "(5)")
 }
 
 func (s *Store) migrate() error { //nolint:funcorder // grouped with the other setup logic
@@ -144,8 +204,10 @@ func (s *Store) migrate() error { //nolint:funcorder // grouped with the other s
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 
+		// OR IGNORE: two processes racing a cold-start init may both apply an
+		// IF-NOT-EXISTS migration; recording it must not fail the second one.
 		if _, err := s.db.ExecContext(ctx,
-			`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			`INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)`, name); err != nil {
 			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 	}
