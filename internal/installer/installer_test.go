@@ -103,6 +103,37 @@ func TestInstallWritesLauncherAndShimFiles(t *testing.T) {
 	}
 }
 
+func TestSwapExecutable(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "new.exe")
+	dst := filepath.Join(dir, "canonical.exe")
+
+	if err := os.WriteFile(src, []byte("NEW"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(dst, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := swapExecutable(src, dst); err != nil {
+		t.Fatalf("swapExecutable: %v", err)
+	}
+
+	if got, _ := os.ReadFile(dst); string(got) != "NEW" {
+		t.Errorf("dst = %q, want NEW", got)
+	}
+
+	if old, err := os.ReadFile(dst + ".old"); err != nil || string(old) != "OLD" {
+		t.Errorf(".old = %q err=%v, want the previous binary moved aside", old, err)
+	}
+
+	// Re-invoking with src == dst is a no-op (a re-install through the canonical).
+	if err := swapExecutable(dst, dst); err != nil {
+		t.Errorf("swapExecutable(dst, dst) should be a no-op, got %v", err)
+	}
+}
+
 func TestSameExe(t *testing.T) {
 	dir := t.TempDir()
 

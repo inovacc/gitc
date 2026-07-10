@@ -120,10 +120,8 @@ func placeWindowsLaunchers(self, shimDir string) error {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
 
-	if !sameExe(self, canonical) {
-		if err := copyExecutable(self, canonical); err != nil {
-			return err
-		}
+	if err := swapExecutable(self, canonical); err != nil {
+		return err
 	}
 
 	// 2. Write the launcher as git.exe and hard-link sh/bash.exe to it, so all
@@ -148,6 +146,33 @@ func placeWindowsLaunchers(self, shimDir string) error {
 		if err := writeShimFile(filepath.Join(shimDir, name), canonical, args); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// swapExecutable installs src at dst even when dst is a running executable —
+// Windows locks a running .exe against truncation, but a running .exe can still
+// be renamed. It moves the old binary aside as <dst>.old (swept on a later
+// startup) and copies the new one into place, rolling back on failure. A no-op
+// when src already IS dst (a re-install invoked through the canonical itself).
+func swapExecutable(src, dst string) error {
+	if sameExe(src, dst) {
+		return nil
+	}
+
+	old := dst + ".old"
+	_ = os.Remove(old)
+
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, old); err != nil {
+			return fmt.Errorf("move current binary aside: %w", err)
+		}
+	}
+
+	if err := copyExecutable(src, dst); err != nil {
+		_ = os.Rename(old, dst) // best-effort rollback
+		return err
 	}
 
 	return nil
