@@ -53,6 +53,27 @@ func TestPinnedManifestComplete(t *testing.T) {
 	}
 }
 
+func TestPinnedBusyboxComplete(t *testing.T) {
+	t.Parallel()
+
+	m := PinnedBusybox()
+	if m.Version != pinnedVersion || m.Flavor != "MinGit-busybox" {
+		t.Fatalf("busybox manifest metadata: %+v", m)
+	}
+
+	// git-for-windows builds busybox for 64/32-bit only (no arm64).
+	for _, arch := range []string{"amd64", "386"} {
+		a, ok := m.For("windows", arch)
+		if !ok || a.SHA256 == "" || a.URL == "" {
+			t.Errorf("busybox windows/%s missing/incomplete: %+v", arch, a)
+		}
+	}
+
+	if _, ok := m.For("windows", "arm64"); ok {
+		t.Error("there is no arm64 busybox build; For should miss")
+	}
+}
+
 func TestParseManifestAndFor(t *testing.T) {
 	t.Parallel()
 
