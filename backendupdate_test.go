@@ -18,6 +18,25 @@ func TestPinnedAvailableMatchesPlatform(t *testing.T) {
 	}
 }
 
+func TestShellName(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		`C:\gitc\shim\sh.exe`:  "sh",
+		"bash.exe":             "bash",
+		"/opt/gitc/sh":         "sh",
+		"BASH.EXE":             "bash",
+		`C:\gitc\shim\git.exe`: "",
+		"gitc":                 "",
+	}
+
+	for arg0, want := range cases {
+		if got := shellName(arg0); got != want {
+			t.Errorf("shellName(%q) = %q, want %q", arg0, got, want)
+		}
+	}
+}
+
 func TestManifestForFlavor(t *testing.T) {
 	t.Parallel()
 
