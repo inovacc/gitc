@@ -14,6 +14,75 @@ type auditLine struct {
 	exit                                                int
 }
 
+// AuditRow is one audit record exposed for structured/interactive consumption
+// (the audit TUI). Argv and Env are the stored JSON blobs; Command decodes argv.
+type AuditRow struct {
+	ID          int64
+	TS          string
+	OSUser      string
+	Identity    string
+	Cwd         string
+	Argv        string // JSON array (credential-masked)
+	Env         string // JSON object
+	Backend     string
+	BackendPath string
+	Mode        string
+	Shortcut    string
+	Exit        int
+	DurationMS  int64
+	Enrichment  string
+}
+
+// Command decodes the stored argv JSON into a readable space-joined command.
+func (r AuditRow) Command() string {
+	var argv []string
+	if err := json.Unmarshal([]byte(r.Argv), &argv); err != nil {
+		return r.Argv
+	}
+
+	return strings.Join(argv, " ")
+}
+
+// Blocked reports whether this row is a policy-refused (never-executed) command.
+func (r AuditRow) Blocked() bool { return r.Mode == "blocked" }
+
+// Records returns the most recent n audit rows (newest first) as structured
+// data for the interactive viewer. Read-only.
+func (s *Store) Records(n int) ([]AuditRow, error) {
+	if n <= 0 {
+		n = 200
+	}
+
+	const q = `SELECT id, ts, os_user, COALESCE(identity,''), cwd, argv, env_subset,
+        backend, backend_path, mode, COALESCE(shortcut,''), exit_code, duration_ms,
+        COALESCE(enrichment,'') FROM audit_log ORDER BY id DESC LIMIT ?`
+
+	rows, err := s.db.QueryContext(context.Background(), q, n)
+	if err != nil {
+		return nil, fmt.Errorf("query audit rows: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var out []AuditRow
+
+	for rows.Next() {
+		var r AuditRow
+		if err := rows.Scan(&r.ID, &r.TS, &r.OSUser, &r.Identity, &r.Cwd, &r.Argv, &r.Env,
+			&r.Backend, &r.BackendPath, &r.Mode, &r.Shortcut, &r.Exit, &r.DurationMS, &r.Enrichment); err != nil {
+			return nil, fmt.Errorf("scan audit row: %w", err)
+		}
+
+		out = append(out, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit rows: %w", err)
+	}
+
+	return out, nil
+}
+
 // Tail writes the most recent n audit rows to w, oldest first. When wide is
 // false it prints a compact one-line summary (time, exit, branch, short
 // command); when true it prints the full record (user, backend, raw argv, repo
