@@ -25,7 +25,7 @@ const gitQueryTimeout = 5 * time.Second
 // returns (exitCode, true) to refuse; (0, false) to allow. A broken policy file
 // fails closed.
 func enforceGates(args []string, gitPath string) (int, bool) {
-	pol, err := policy.LoadPolicy(paths.PolicyPath())
+	pol, _, err := loadEnforcementPolicy()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: policy: %v\n", err)
 		return 1, true
@@ -36,6 +36,49 @@ func enforceGates(args []string, gitPath string) (int, bool) {
 	}
 
 	return enforceSecretGate(pol, args)
+}
+
+// loadEnforcementPolicy resolves the machine/org policy, defending against an
+// agent relocating it via its user environment (SEC-2/H-27). It reads the
+// machine-wide policy first — a location the agent's LOCALAPPDATA/XDG_DATA_HOME
+// cannot repoint — then the deprecated per-user path. It returns the resolved
+// path for the audit record.
+func loadEnforcementPolicy() (policy.Policy, string, error) {
+	return resolvePolicy(paths.MachinePolicyPath(), paths.PolicyPath(), paths.EnforceMarkerPath())
+}
+
+// resolvePolicy is loadEnforcementPolicy's path-injected core (testable without
+// touching the real machine dirs). Order: machine policy, then the deprecated
+// per-user policy. If neither exists and the ENFORCE marker is present, it fails
+// CLOSED (returns an error) so a missing policy blocks rather than silently
+// disabling enforcement.
+func resolvePolicy(machinePath, userPath, markerPath string) (policy.Policy, string, error) {
+	if fileExists(machinePath) {
+		pol, err := policy.LoadPolicy(machinePath)
+		return pol, machinePath, err
+	}
+
+	if fileExists(userPath) {
+		fmt.Fprintf(os.Stderr,
+			"gitc: warning: per-user policy.json is deprecated (removal 2026-09-01); move it to %s\n", machinePath)
+
+		pol, err := policy.LoadPolicy(userPath)
+
+		return pol, userPath, err
+	}
+
+	if fileExists(markerPath) {
+		return policy.Policy{}, "", fmt.Errorf(
+			"enforcement required (%s present) but no policy.json found at %s", markerPath, machinePath)
+	}
+
+	return policy.Policy{}, "", nil
+}
+
+// fileExists reports whether path is an existing regular file.
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // enforceRemoteAllowlist resolves the effective remote URL(s) of a remote-facing

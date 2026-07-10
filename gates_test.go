@@ -4,10 +4,73 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/inovacc/gitc/internal/policy"
 )
+
+// writeFile is a test helper that writes data or fails the test.
+func writeFile(t *testing.T, path string, data string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestResolvePolicy covers H-27/SEC-2: machine policy wins over the deprecated
+// per-user policy, and a missing policy fails CLOSED when the ENFORCE marker is
+// present (so an agent redirecting its user dir cannot disable the gate).
+func TestResolvePolicy(t *testing.T) {
+	dir := t.TempDir()
+	machine := filepath.Join(dir, "machine.json")
+	user := filepath.Join(dir, "user.json")
+	marker := filepath.Join(dir, "ENFORCE")
+
+	const valid = `{"version":1,"remoteAllowlist":{"enabled":true,"hosts":["internal.example"]}}`
+
+	// Machine policy present -> used.
+	writeFile(t, machine, valid)
+
+	pol, path, err := resolvePolicy(machine, user, marker)
+	if err != nil || path != machine || !pol.RemoteAllow.Enabled {
+		t.Fatalf("machine policy should win: path=%q err=%v enabled=%v", path, err, pol.RemoteAllow.Enabled)
+	}
+
+	// Only the deprecated per-user policy present -> used as fallback.
+	if err := os.Remove(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, user, valid)
+
+	_, path, err = resolvePolicy(machine, user, marker)
+	if err != nil || path != user {
+		t.Fatalf("user policy fallback should be used: path=%q err=%v", path, err)
+	}
+
+	// Neither policy, but the ENFORCE marker is present -> fail CLOSED.
+	if err := os.Remove(user); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, marker, "1")
+
+	if _, _, err := resolvePolicy(machine, user, marker); err == nil {
+		t.Fatal("ENFORCE marker with no policy must fail closed (return an error)")
+	}
+
+	// Neither policy nor marker -> no enforcement (backwards compatible).
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+
+	pol, path, err = resolvePolicy(machine, user, marker)
+	if err != nil || path != "" || pol.RemoteAllow.Enabled {
+		t.Fatalf("no policy + no marker must be no-enforcement: path=%q err=%v", path, err)
+	}
+}
 
 // allowlistPolicy builds a policy whose remote allowlist permits only hosts.
 func allowlistPolicy(hosts ...string) policy.Policy {
