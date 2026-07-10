@@ -4,12 +4,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/inovacc/gitc/internal/installer/shim"
+	"github.com/inovacc/gitc/internal/paths"
 )
 
 func TestInstallHardlinksShellShims(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		t.Skip("sh/bash shims are Windows-only")
+		t.Skip("sh/bash launcher shims are Windows-only")
 	}
 
 	t.Setenv("LOCALAPPDATA", t.TempDir())
@@ -32,6 +36,69 @@ func TestInstallHardlinksShellShims(t *testing.T) {
 
 		if !os.SameFile(gi, si) {
 			t.Errorf("%s should be a hard link to git.exe (share the inode)", name)
+		}
+	}
+}
+
+func TestInstallWritesLauncherAndShimFiles(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the launcher model is Windows-only")
+	}
+
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+
+	res, err := Install(false)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// git.exe must be the tiny embedded launcher, not a full copy of gitc.
+	launcher := shim.Binary(runtime.GOARCH)
+	if launcher == nil {
+		t.Fatalf("no embedded launcher for %s", runtime.GOARCH)
+	}
+
+	got, err := os.ReadFile(res.ShimGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got) != len(launcher) {
+		t.Errorf("git.exe is %d bytes; expected the %d-byte launcher, not a gitc copy", len(got), len(launcher))
+	}
+
+	// The canonical gitc.exe the launchers exec must exist.
+	if _, err := os.Stat(paths.CanonicalPath()); err != nil {
+		t.Errorf("canonical gitc.exe missing: %v", err)
+	}
+
+	// Each launcher needs a sibling .shim pointing at the canonical binary; the
+	// sh/bash personas carry the gitc meta command in `args`.
+	canonical := paths.CanonicalPath()
+
+	cases := map[string]string{
+		"git.shim":  "",
+		"sh.shim":   "args = gitc sh",
+		"bash.shim": "args = gitc bash",
+	}
+
+	for name, wantArgs := range cases {
+		body, err := os.ReadFile(filepath.Join(res.ShimDir, name))
+		if err != nil {
+			t.Fatalf("%s not written: %v", name, err)
+		}
+
+		text := string(body)
+		if !strings.Contains(text, "path = "+canonical) {
+			t.Errorf("%s must point at the canonical binary; got:\n%s", name, text)
+		}
+
+		if wantArgs != "" && !strings.Contains(text, wantArgs) {
+			t.Errorf("%s must carry %q; got:\n%s", name, wantArgs, text)
+		}
+
+		if wantArgs == "" && strings.Contains(text, "args = ") {
+			t.Errorf("git.shim must have no args line; got:\n%s", text)
 		}
 	}
 }

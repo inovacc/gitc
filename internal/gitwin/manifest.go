@@ -75,7 +75,21 @@ func (m Manifest) EnsurePinned(ctx context.Context, a ManifestAsset, baseDir str
 		return "", fmt.Errorf("unpacked git but %s is missing: %w", gitExe, err)
 	}
 
+	pruneRedundant(dest)
+
 	return gitExe, nil
+}
+
+// pruneRedundant removes directories the git-for-windows tarball ships that gitc
+// never uses: gitc invokes cmd/git.exe and the usr/bin + mingw64/bin shells
+// directly (git's own internal /usr/bin/sh, too) — never the top-level bin/
+// launchers — and dev/ and tmp/ are empty runtime scaffolding. Dropping them
+// reclaims a chunk of the full flavor's footprint. Best-effort: absent dirs
+// (e.g. on the leaner MinGit flavors) are ignored.
+func pruneRedundant(dest string) {
+	for _, name := range []string{"bin", "tmp", "dev"} {
+		_ = os.RemoveAll(filepath.Join(dest, name))
+	}
 }
 
 // extractArchive unpacks src into destDir, dispatching on the asset filename: a

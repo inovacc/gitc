@@ -23,9 +23,15 @@ func TestCleanShimBackups(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", base)
 	t.Setenv("XDG_DATA_HOME", base)
 
+	// Both the shim dir (launcher shims) and the bin dir (canonical gitc.exe) are
+	// swept, since a self-update swap leaves <name>.old in whichever dir it ran.
 	shim := paths.ShimDir()
-	if err := os.MkdirAll(shim, 0o755); err != nil {
-		t.Fatal(err)
+	bin := paths.BinDir()
+
+	for _, d := range []string{shim, bin} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	keep := filepath.Join(shim, "git.exe")
@@ -33,8 +39,13 @@ func TestCleanShimBackups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, old := range []string{"git.exe.old", "gitc.old"} {
-		if err := os.WriteFile(filepath.Join(shim, old), []byte("stale"), 0o644); err != nil {
+	stale := map[string]string{
+		filepath.Join(shim, "git.exe.old"): "stale",
+		filepath.Join(shim, "gitc.old"):    "stale",
+		filepath.Join(bin, "gitc.exe.old"): "stale", // the update swap's leftover
+	}
+	for p := range stale {
+		if err := os.WriteFile(p, []byte("stale"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,9 +56,9 @@ func TestCleanShimBackups(t *testing.T) {
 		t.Errorf("current shim must be kept: %v", err)
 	}
 
-	for _, old := range []string{"git.exe.old", "gitc.old"} {
-		if _, err := os.Stat(filepath.Join(shim, old)); !os.IsNotExist(err) {
-			t.Errorf("%s should have been swept", old)
+	for p := range stale {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s should have been swept", p)
 		}
 	}
 }
