@@ -104,7 +104,9 @@ func (p Policy) RemoteRefs(args []string) (refs []string, usesDefault bool) {
 
 	sub := args[idx]
 	switch sub {
-	case "push", "fetch", "pull", "clone", "remote":
+	// send-pack / http-push are low-level push plumbing whose first positional is
+	// the destination remote — they exfil just like push and must be vetted too.
+	case "push", "fetch", "pull", "clone", "remote", "send-pack", "http-push":
 	default:
 		return nil, false
 	}
@@ -128,7 +130,7 @@ func (p Policy) RemoteRefs(args []string) (refs []string, usesDefault bool) {
 		}
 
 		return urls, false
-	default: // push / fetch / pull: the first positional is the remote (name or URL)
+	default: // push/fetch/pull/send-pack/http-push: first positional is the remote
 		if len(pos) == 0 {
 			return nil, true
 		}
@@ -160,6 +162,8 @@ var valueConsumingFlags = map[string]map[string]bool{
 		"--shallow-since", "--shallow-exclude", "--negotiation-tip", "--server-option", "-o"),
 	"pull": flagSet("--upload-pack", "--exec", "--depth", "--deepen", "-s", "--strategy",
 		"-X", "--strategy-option", "--shallow-since", "--shallow-exclude", "--server-option"),
+	"send-pack": flagSet("--receive-pack", "--exec", "--max-pack-size"),
+	"http-push": flagSet(),
 	"clone": flagSet("-u", "--upload-pack", "-b", "--branch", "-o", "--origin", "-c", "--config",
 		"--reference", "--reference-if-able", "--depth", "--template", "-j", "--jobs",
 		"--filter", "--separate-git-dir", "--shallow-since", "--shallow-exclude",

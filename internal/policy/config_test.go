@@ -162,6 +162,27 @@ func TestRemoteRefsValueFlagConfusion(t *testing.T) {
 	}
 }
 
+// TestRemoteRefsPlumbingVerbs is the SEC-5/H-31 regression: low-level push
+// plumbing (send-pack, http-push) must be vetted by the allowlist too.
+func TestRemoteRefsPlumbingVerbs(t *testing.T) {
+	t.Parallel()
+
+	p := Policy{RemoteAllow: RemoteAllowlist{Enabled: true, Hosts: []string{"github.com"}}}
+
+	if refs, _ := p.RemoteRefs([]string{"send-pack", "evil.com:repo", "HEAD"}); len(refs) == 0 || refs[0] != "evil.com:repo" {
+		t.Errorf("send-pack remote not vetted: %v", refs)
+	}
+
+	if refs, _ := p.RemoteRefs([]string{"http-push", "https://evil.example/x", "main"}); len(refs) == 0 || refs[0] != "https://evil.example/x" {
+		t.Errorf("http-push URL not vetted: %v", refs)
+	}
+
+	// Value flag before the destination must be skipped.
+	if refs, _ := p.RemoteRefs([]string{"send-pack", "--receive-pack", "rp", "evil.com:repo", "HEAD"}); len(refs) == 0 || refs[0] != "evil.com:repo" {
+		t.Errorf("send-pack value-flag destination not detected: %v", refs)
+	}
+}
+
 func TestSecretGateMode(t *testing.T) {
 	t.Parallel()
 

@@ -71,3 +71,9 @@ deferred as low value / high churn:
   Resolving configured aliases via `git config --get alias.<sub>` needs
   built-in-shadow awareness (git ignores aliases named like a built-in), else it
   false-positives on a benign `alias.status`. Deferred.
+
+- **git-svn / bundle / fast-export exfil surfaces (SEC-5 residual).** H-31 added
+  send-pack + http-push to the remote allowlist. `git svn dcommit` targets a
+  config-based svn-remote (no positional URL) and `git bundle create <file>` /
+  `git fast-export` exfil to a LOCAL file — neither fits a host allowlist. Gating
+  them needs a separate "local exfil / svn-remote" policy dimension. Deferred.
