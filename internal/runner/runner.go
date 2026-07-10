@@ -31,12 +31,20 @@ var (
 	envCapturePrefix = []string{"GIT_"}
 )
 
+// GateFunc decides whether an about-to-run git arg vector is permitted. It
+// returns (exitCode, true) to BLOCK the command — git is never run — or
+// (_, false) to allow it. It is the single enforcement choke point: every git
+// vector the runner executes (passthrough AND each shortcut step) passes through
+// it, so a built-in shortcut cannot bypass the machine/org policy.
+type GateFunc func(ctx context.Context, args []string) (code int, blocked bool)
+
 // Runner executes git work against a resolved backend and audits it.
 type Runner struct {
 	backend  backend.Backend
 	store    *store.Store // may be nil if the audit DB failed to open
 	enricher enrich.Enricher
 	warn     io.Writer
+	gate     GateFunc // nil means unguarded
 
 	osUser   string
 	identity string
@@ -61,6 +69,11 @@ func New(b backend.Backend, s *store.Store, e enrich.Enricher, warn io.Writer) *
 
 	return r
 }
+
+// Guard installs the enforcement gate run before every git vector — passthrough
+// and each shortcut step alike. Without it the runner executes unguarded. This
+// is what makes the machine/org policy non-bypassable via built-in shortcuts.
+func (r *Runner) Guard(g GateFunc) { r.gate = g }
 
 // Passthrough forwards args verbatim to the backend and audits the call.
 // It returns the backend exit code.
@@ -105,8 +118,16 @@ func (r *Runner) Shortcut(ctx context.Context, sc shortcut.Shortcut, args []stri
 	return last
 }
 
-// execAndAudit runs one git arg vector and writes one audit row.
+// execAndAudit runs one git arg vector and writes one audit row. The enforcement
+// gate (if installed) runs first: a blocked vector never reaches git and is not
+// audited as an executed operation.
 func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcutName string) int {
+	if r.gate != nil {
+		if code, blocked := r.gate(ctx, args); blocked {
+			return code
+		}
+	}
+
 	rec := r.baseRecord(args, mode, shortcutName)
 	rec.TS = time.Now()
 

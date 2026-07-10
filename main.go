@@ -105,17 +105,20 @@ func run(ctx context.Context, args []string) int {
 
 	r := runner.New(b, st, enrich.NewExec(b.Path), os.Stderr)
 
+	// Enforce the machine/org policy (secret gate, remote allowlist) at the single
+	// choke point the runner funnels every git vector through — so built-in
+	// shortcuts (which expand to push/commit steps) are gated exactly like
+	// passthrough and cannot bypass enforcement. A blocked command never reaches
+	// git. The backend path lets the allowlist resolve named/default remotes.
+	r.Guard(func(_ context.Context, args []string) (int, bool) {
+		return enforceGates(args, b.Path)
+	})
+
 	switch dec.Kind {
 	case router.RunShortcut:
 		return r.Shortcut(ctx, dec.Shortcut, dec.Args)
 	default:
 		args := dec.Args
-		// Enforce the machine/org policy (secret gate, remote allowlist) before
-		// the command runs. A blocked command never reaches git. The backend path
-		// lets the allowlist resolve named/default remotes to their URLs.
-		if code, blocked := enforceGates(args, b.Path); blocked {
-			return code
-		}
 		// New repos default to `main`, not `master`, unless the user chose a
 		// branch. Only inject when the backend git supports the flag.
 		if idx, ok := policy.InitNeedsBranch(args); ok && b.SupportsInitialBranch(ctx) {
