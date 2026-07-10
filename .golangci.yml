@@ -56,7 +56,7 @@ linters:
       # display catalog as DATA, not magic constants — centralizing it across
       # packages would hurt readability without adding safety. Genuine duplicated
       # literals elsewhere are still flagged.
-      ignore-string-values: '^(git|--all|--help|-h|--version|arm64|amd64|386|init|scan|audit|scrub|where|install|uninstall|update|doctor|cmdtree|fetch-git|backend-update|version|help|auto|always|never|string|bool|passthrough|commit|push|pull|fetch|clone|remote)$'
+      ignore-string-values: '^(git|--all|--help|-h|--version|arm64|amd64|386|windows/amd64|windows/arm64|windows/386|init|scan|audit|scrub|where|install|uninstall|update|doctor|cmdtree|fetch-git|backend-update|version|help|auto|always|never|string|bool|passthrough|commit|push|pull|fetch|clone|remote|busybox|full|minimal)$'
 
   exclusions:
     rules:

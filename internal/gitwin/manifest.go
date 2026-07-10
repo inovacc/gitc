@@ -56,7 +56,7 @@ func (m Manifest) EnsurePinned(ctx context.Context, a ManifestAsset, baseDir str
 		return gitExe, nil
 	}
 
-	tmp := dest + ".download.zip"
+	tmp := dest + ".download"
 	if err := Download(ctx, a.URL, tmp); err != nil {
 		return "", err
 	}
@@ -67,15 +67,25 @@ func (m Manifest) EnsurePinned(ctx context.Context, a ManifestAsset, baseDir str
 		return "", err
 	}
 
-	if err := Unzip(tmp, dest); err != nil {
+	if err := extractArchive(a.Name, tmp, dest); err != nil {
 		return "", err
 	}
 
 	if _, err := os.Stat(gitExe); err != nil {
-		return "", fmt.Errorf("unpacked MinGit but %s is missing: %w", gitExe, err)
+		return "", fmt.Errorf("unpacked git but %s is missing: %w", gitExe, err)
 	}
 
 	return gitExe, nil
+}
+
+// extractArchive unpacks src into destDir, dispatching on the asset filename: a
+// full-git .tar.bz2 tarball vs a MinGit .zip.
+func extractArchive(name, src, destDir string) error {
+	if strings.HasSuffix(strings.ToLower(name), ".tar.bz2") {
+		return ExtractTarBz2(src, destDir)
+	}
+
+	return Unzip(src, destDir)
 }
 
 // verifySHA256 checks that file hashes to the expected hex digest.

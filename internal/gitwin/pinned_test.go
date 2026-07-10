@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +72,27 @@ func TestPinnedBusyboxComplete(t *testing.T) {
 
 	if _, ok := m.For("windows", "arm64"); ok {
 		t.Error("there is no arm64 busybox build; For should miss")
+	}
+}
+
+func TestPinnedFullComplete(t *testing.T) {
+	t.Parallel()
+
+	m := PinnedFull()
+	if m.Version != pinnedVersion || m.Flavor != "Git-full" {
+		t.Fatalf("full manifest metadata: %+v", m)
+	}
+
+	// git-for-windows ships the full tarball for 64-bit and arm64 only.
+	for _, arch := range []string{"amd64", "arm64"} {
+		a, ok := m.For("windows", arch)
+		if !ok || a.SHA256 == "" || !strings.HasSuffix(a.Name, ".tar.bz2") {
+			t.Errorf("full windows/%s missing/incomplete: %+v", arch, a)
+		}
+	}
+
+	if _, ok := m.For("windows", "386"); ok {
+		t.Error("there is no 32-bit full tarball; For should miss")
 	}
 }
 
