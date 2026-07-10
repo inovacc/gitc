@@ -64,3 +64,23 @@ deferred as low value / high churn:
   `resolvePolicy` already returns the path it used; persisting it per audit row so
   a policy relocation is forensically visible needs a store schema migration
   (new `resolved_policy_path` column) + runner plumbing. Deferred from H-27.
+
+- **Configured (pre-set) git alias resolution (SEC-6 residual).** H-30 blocks
+  command-line `-c alias.<name>=<gated-verb>` injection. A pre-configured alias
+  (`git config alias.p push` then `git p`) still evades gate classification.
+  Resolving configured aliases via `git config --get alias.<sub>` needs
+  built-in-shadow awareness (git ignores aliases named like a built-in), else it
+  false-positives on a benign `alias.status`. Deferred.
+
+- **git-svn / bundle / fast-export exfil surfaces (SEC-5 residual).** H-31 added
+  send-pack + http-push to the remote allowlist. `git svn dcommit` targets a
+  config-based svn-remote (no positional URL) and `git bundle create <file>` /
+  `git fast-export` exfil to a LOCAL file — neither fits a host allowlist. Gating
+  them needs a separate "local exfil / svn-remote" policy dimension. Deferred.
+
+- **Secret gate: staged index + push commit-range scanning (SEC-7 residual).**
+  H-32 makes the gate scan the correct worktree (honoring -C/--git-dir). It still
+  scans the working TREE, not the staged index (what `commit` records) nor the
+  commit range a `push` sends (`git rev-list <remote>..<local>`). A secret
+  committed while the gate was off and removed from the worktree still ships on
+  push. Needs a gitleaks git-log/range mode in internal/scan. Deferred.

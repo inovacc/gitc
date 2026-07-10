@@ -115,6 +115,74 @@ func TestRemoteRefs(t *testing.T) {
 	}
 }
 
+// TestRemoteRefsValueFlagConfusion is the SEC-3/H-28 regression: a value-flag
+// before the remote must not shift the detected positional, and any URL-looking
+// positional must be vetted — so an exfil remote can't hide behind a flag value.
+func TestRemoteRefsValueFlagConfusion(t *testing.T) {
+	t.Parallel()
+
+	p := Policy{RemoteAllow: RemoteAllowlist{Enabled: true, Hosts: []string{"github.com"}}}
+
+	contains := func(refs []string, want string) bool {
+		for _, r := range refs {
+			if r == want {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	// `-o opt` consumes "opt"; the real remote URL must still be detected.
+	refs, _ := p.RemoteRefs([]string{"push", "-o", "opt", "evil.com:repo", "main"})
+	if !contains(refs, "evil.com:repo") {
+		t.Errorf("value-flag push: exfil URL not vetted, refs=%v", refs)
+	}
+
+	if contains(refs, "opt") {
+		t.Errorf("the flag value must not be treated as the remote, refs=%v", refs)
+	}
+
+	// The `=` form does not consume the next token; the URL is the positional.
+	refs, _ = p.RemoteRefs([]string{"push", "--push-option=x", "evil.com:repo"})
+	if !contains(refs, "evil.com:repo") {
+		t.Errorf("--flag=value push: exfil URL not vetted, refs=%v", refs)
+	}
+
+	// clone: `-b main` value must be skipped so the source URL is the positional.
+	refs, _ = p.RemoteRefs([]string{"clone", "-b", "main", "https://evil.example/x", "dir"})
+	if !contains(refs, "https://evil.example/x") {
+		t.Errorf("clone with value flag: source URL not detected, refs=%v", refs)
+	}
+
+	// Plain named push still resolves to the single named remote.
+	refs, _ = p.RemoteRefs([]string{"push", "origin", "main"})
+	if len(refs) != 1 || refs[0] != "origin" {
+		t.Errorf("plain named push regressed: refs=%v", refs)
+	}
+}
+
+// TestRemoteRefsPlumbingVerbs is the SEC-5/H-31 regression: low-level push
+// plumbing (send-pack, http-push) must be vetted by the allowlist too.
+func TestRemoteRefsPlumbingVerbs(t *testing.T) {
+	t.Parallel()
+
+	p := Policy{RemoteAllow: RemoteAllowlist{Enabled: true, Hosts: []string{"github.com"}}}
+
+	if refs, _ := p.RemoteRefs([]string{"send-pack", "evil.com:repo", "HEAD"}); len(refs) == 0 || refs[0] != "evil.com:repo" {
+		t.Errorf("send-pack remote not vetted: %v", refs)
+	}
+
+	if refs, _ := p.RemoteRefs([]string{"http-push", "https://evil.example/x", "main"}); len(refs) == 0 || refs[0] != "https://evil.example/x" {
+		t.Errorf("http-push URL not vetted: %v", refs)
+	}
+
+	// Value flag before the destination must be skipped.
+	if refs, _ := p.RemoteRefs([]string{"send-pack", "--receive-pack", "rp", "evil.com:repo", "HEAD"}); len(refs) == 0 || refs[0] != "evil.com:repo" {
+		t.Errorf("send-pack value-flag destination not detected: %v", refs)
+	}
+}
+
 func TestSecretGateMode(t *testing.T) {
 	t.Parallel()
 

