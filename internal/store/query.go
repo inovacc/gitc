@@ -14,6 +14,75 @@ type auditLine struct {
 	exit                                                int
 }
 
+// AuditRow is one audit record exposed for structured/interactive consumption
+// (the audit TUI). Argv and Env are the stored JSON blobs; Command decodes argv.
+type AuditRow struct {
+	ID          int64
+	TS          string
+	OSUser      string
+	Identity    string
+	Cwd         string
+	Argv        string // JSON array (credential-masked)
+	Env         string // JSON object
+	Backend     string
+	BackendPath string
+	Mode        string
+	Shortcut    string
+	Exit        int
+	DurationMS  int64
+	Enrichment  string
+}
+
+// Command decodes the stored argv JSON into a readable space-joined command.
+func (r AuditRow) Command() string {
+	var argv []string
+	if err := json.Unmarshal([]byte(r.Argv), &argv); err != nil {
+		return r.Argv
+	}
+
+	return strings.Join(argv, " ")
+}
+
+// Blocked reports whether this row is a policy-refused (never-executed) command.
+func (r AuditRow) Blocked() bool { return r.Mode == "blocked" }
+
+// Records returns the most recent n audit rows (newest first) as structured
+// data for the interactive viewer. Read-only.
+func (s *Store) Records(n int) ([]AuditRow, error) {
+	if n <= 0 {
+		n = 200
+	}
+
+	const q = `SELECT id, ts, os_user, COALESCE(identity,''), cwd, argv, env_subset,
+        backend, backend_path, mode, COALESCE(shortcut,''), exit_code, duration_ms,
+        COALESCE(enrichment,'') FROM audit_log ORDER BY id DESC LIMIT ?`
+
+	rows, err := s.db.QueryContext(context.Background(), q, n)
+	if err != nil {
+		return nil, fmt.Errorf("query audit rows: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var out []AuditRow
+
+	for rows.Next() {
+		var r AuditRow
+		if err := rows.Scan(&r.ID, &r.TS, &r.OSUser, &r.Identity, &r.Cwd, &r.Argv, &r.Env,
+			&r.Backend, &r.BackendPath, &r.Mode, &r.Shortcut, &r.Exit, &r.DurationMS, &r.Enrichment); err != nil {
+			return nil, fmt.Errorf("scan audit row: %w", err)
+		}
+
+		out = append(out, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit rows: %w", err)
+	}
+
+	return out, nil
+}
+
 // Tail writes the most recent n audit rows to w, oldest first. When wide is
 // false it prints a compact one-line summary (time, exit, branch, short
 // command); when true it prints the full record (user, backend, raw argv, repo
@@ -167,10 +236,17 @@ func renderWide(w io.Writer, l auditLine) {
 		l.ts, l.user, l.exit, l.backend, tag, l.argv, formatEnrichment(l.enrichment))
 }
 
-// renderCompact prints a short one-line summary: time, exit, branch, command.
+// renderCompact prints a short one-line summary: time, status, branch, command.
+// A policy-refused row shows BLOCKED rather than an exit code so a blocked
+// attempt is not mistaken for a git-level failure.
 func renderCompact(w io.Writer, l auditLine) {
-	fmt.Fprintf(w, "%s  exit=%-2d  %-22s  %s\n",
-		shortTime(l.ts), l.exit, shortBranch(l.enrichment), shortArgv(l.argv, 64))
+	status := fmt.Sprintf("exit=%-2d", l.exit)
+	if l.mode == "blocked" {
+		status = "BLOCKED"
+	}
+
+	fmt.Fprintf(w, "%s  %-8s  %-22s  %s\n",
+		shortTime(l.ts), status, shortBranch(l.enrichment), shortArgv(l.argv, 64))
 }
 
 // shortTime extracts HH:MM:SS from an RFC3339 timestamp.

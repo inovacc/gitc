@@ -568,9 +568,10 @@ func runAudit(args []string, st *store.Store) int {
 		return 1
 	}
 
-	n := 20
+	n := 0
 	wide := false
 	verify := false
+	plain := false
 
 	for _, a := range args {
 		switch a {
@@ -578,6 +579,8 @@ func runAudit(args []string, st *store.Store) int {
 			wide = true
 		case "--verify":
 			verify = true
+		case "--plain":
+			plain = true
 		default:
 			if v, err := strconv.Atoi(a); err == nil {
 				n = v
@@ -589,12 +592,35 @@ func runAudit(args []string, st *store.Store) int {
 		return runAuditVerify(st)
 	}
 
-	if err := st.Tail(n, wide, os.Stdout); err != nil {
+	// On a terminal, browse interactively; a pipe/redirect, --plain, or --wide
+	// gets the scriptable text render. The TUI loads the most recent rows
+	// (default 500) so a big log stays responsive.
+	if !wide && !plain && stdoutIsTTY() {
+		return runAuditTUI(st, auditLimit(n, 500))
+	}
+
+	if err := st.Tail(auditLimit(n, 20), wide, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
 		return 1
 	}
 
 	return 0
+}
+
+// auditLimit returns n when the user gave a positive count, else the default.
+func auditLimit(n, def int) int {
+	if n > 0 {
+		return n
+	}
+
+	return def
+}
+
+// stdoutIsTTY reports whether stdout is an interactive terminal (not a pipe or
+// file), using only the standard library so no isatty dependency is pulled in.
+func stdoutIsTTY() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
 }
 
 // runAuditVerify checks the tamper-evident hash chain and reports whether the
