@@ -249,7 +249,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 // git-for-windows releases API for the newest version (no pinned hash); --list
 // shows recent releases.
 func runFetchGit(ctx context.Context, args []string) int {
-	var list, latest, acceptUnverified bool
+	var list, latest, acceptUnverified, busybox bool
 
 	for _, a := range args {
 		switch a {
@@ -259,6 +259,8 @@ func runFetchGit(ctx context.Context, args []string) int {
 			latest = true
 		case "--i-accept-unverified":
 			acceptUnverified = true
+		case "--busybox":
+			busybox = true
 		default:
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
 			return 2
@@ -270,8 +272,10 @@ func runFetchGit(ctx context.Context, args []string) int {
 		return fetchGitList(ctx)
 	case latest:
 		return fetchGitLatest(ctx, acceptUnverified)
+	case busybox:
+		return fetchGitPinnedManifest(ctx, gitwin.PinnedBusybox())
 	default:
-		return fetchGitPinned(ctx)
+		return fetchGitPinnedManifest(ctx, gitwin.Pinned())
 	}
 }
 
@@ -353,20 +357,19 @@ func installPinnedGit(ctx context.Context) (string, error) {
 	return m.EnsurePinned(ctx, asset, base)
 }
 
-// fetchGitPinned downloads the in-code hash-pinned MinGit (gitwin.Pinned),
-// verifies its sha256, installs it under app/<uuid>/, and activates it.
-func fetchGitPinned(ctx context.Context) int {
-	m := gitwin.Pinned()
-
+// fetchGitPinnedManifest downloads an in-code hash-pinned manifest (standard or
+// busybox MinGit), verifies its sha256, installs it under app/<uuid>/, and
+// activates it.
+func fetchGitPinnedManifest(ctx context.Context, m gitwin.Manifest) int {
 	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned git for %s/%s; try --latest\n",
-			runtime.GOOS, runtime.GOARCH)
+		fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: no pinned %s for %s/%s; try --latest\n",
+			m.Flavor, runtime.GOOS, runtime.GOARCH)
 
 		return 1
 	}
 
-	fmt.Printf("fetching pinned git %s (%s)...\n", m.Version, asset.Name)
+	fmt.Printf("fetching pinned %s %s (%s)...\n", m.Flavor, m.Version, asset.Name)
 
 	base, err := newInstallBase()
 	if err != nil {
@@ -539,7 +542,8 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "  git where               show resolved git backend and audit DB path")
 	fmt.Fprintln(os.Stderr, "  git doctor              health-check install, backend, PATH shim, audit DB")
 	fmt.Fprintln(os.Stderr, "  git update [--check|--apply]     self-update gitc from GitHub releases")
-	fmt.Fprintln(os.Stderr, "  git fetch-git [--latest|--list]  download a git backend (pinned MinGit by default)")
+	fmt.Fprintln(os.Stderr, "  git fetch-git [--latest|--list|--busybox]  download a git backend")
+	fmt.Fprintln(os.Stderr, "                          (--busybox bundles a shell for git hooks)")
 	fmt.Fprintln(os.Stderr, "  git install [--apply]   install the PATH shim (--apply prepends PATH)")
 	fmt.Fprintln(os.Stderr, "  git uninstall           remove the PATH shim")
 	fmt.Fprintln(os.Stderr, "  git cmdtree [-b|--json] show the full command tree")

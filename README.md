@@ -75,7 +75,7 @@ prints a command's usage.
 | `git audit [N]` | Last N invocations, compact. `--wide` full record; `--verify` checks the tamper-evident hash chain |
 | `git doctor` | Health-check: shim, PATH shadowing, backend resolves + executes, audit DB |
 | `git update [--check\|--apply]` | Self-update from GitHub releases (verifies sha256 + size before swap) |
-| `git fetch-git [--latest\|--list]` | Download a git backend (in-code sha256-pinned MinGit by default) |
+| `git fetch-git [--latest\|--list\|--busybox]` | Download a git backend (in-code sha256-pinned MinGit; `--busybox` bundles a POSIX shell so `#!/bin/sh` git hooks run) |
 | `git where` | Resolved git backend + audit DB path |
 | `git install [--apply]` / `git uninstall` | Install / remove the PATH shim |
 | `git cmdtree [-b\|-c NAME\|--json]` | Show the full command tree |
@@ -123,6 +123,11 @@ sha256-verified. A throttled, single-flight background check keeps the backend
 current without blocking commands. `git gitc where` / `git doctor` show what
 resolved. On Linux/macOS, gitc uses the system git (git-for-windows is
 Windows-only).
+
+The default MinGit is shell-less. If you rely on `#!/bin/sh` git hooks on a
+Windows box with no shell, `git fetch-git --busybox` provisions the busybox
+MinGit variant instead — it bundles a POSIX shell (`ash`) so hooks execute with
+no separately-installed shell. (busybox is 64/32-bit only; no arm64 build.)
 
 ## Defaults
 
