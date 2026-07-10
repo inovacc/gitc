@@ -85,13 +85,7 @@ func gitcTree() cmdNode { //nolint:funlen // static command catalog
 			},
 		},
 		{Name: "where", Usage: "git where", Short: "Show resolved git backend and audit DB path"},
-		{
-			Name: "doctor", Usage: "git doctor [--plain]",
-			Short: "Health-check the install, backend, PATH shim, audit DB (TUI on a terminal)",
-			Flags: []cmdFlag{
-				{Name: "plain", Type: "bool", Description: "static checklist instead of the interactive TUI (auto when piped)"},
-			},
-		},
+		{Name: "doctor", Usage: "git doctor", Short: "Health-check the install, backend, PATH shim, and audit DB"},
 		{
 			Name: "update", Usage: "git update [--check|--apply]",
 			Short: "Self-update gitc from GitHub releases", Flags: updateFlags,
