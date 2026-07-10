@@ -239,6 +239,10 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 		return runDoctor(args[1:])
 	case "cmdtree":
 		return runCmdtree(args[1:])
+	case "sh", "bash":
+		// `git gitc sh` / `git gitc bash` — launch the managed backend's shell.
+		// The installed sh.exe/bash.exe shims reach this same logic by name.
+		return runShell(cmd, args[1:])
 	case "backend-update":
 		return runBackendUpdate(ctx)
 	default:
@@ -638,6 +642,7 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "  git install [--apply]   install the PATH shim (--apply prepends PATH)")
 	fmt.Fprintln(os.Stderr, "  git uninstall           remove the PATH shim")
 	fmt.Fprintln(os.Stderr, "  git cmdtree [-b|--json] show the full command tree")
+	fmt.Fprintln(os.Stderr, "  git gitc sh|bash [args] launch the managed backend's shell (also the sh/bash shims)")
 	fmt.Fprintln(os.Stderr, "  git sync|undo|log-graph|quick-commit    built-in shortcuts")
 	fmt.Fprintln(os.Stderr, "  git gitc version        print gitc's own version")
 }
