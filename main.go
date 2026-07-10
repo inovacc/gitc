@@ -16,21 +16,21 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 
+	"github.com/inovacc/gitc/internal/auditcmd"
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/cmdtree"
 	"github.com/inovacc/gitc/internal/doctor"
 	"github.com/inovacc/gitc/internal/enrich"
-	"github.com/inovacc/gitc/internal/filterrepo"
 	"github.com/inovacc/gitc/internal/installer"
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/policy"
 	"github.com/inovacc/gitc/internal/provision"
 	"github.com/inovacc/gitc/internal/router"
 	"github.com/inovacc/gitc/internal/runner"
-	"github.com/inovacc/gitc/internal/scan"
+	"github.com/inovacc/gitc/internal/scancmd"
+	"github.com/inovacc/gitc/internal/scrubcmd"
 	"github.com/inovacc/gitc/internal/selfupdate"
 	"github.com/inovacc/gitc/internal/shortcut"
 	"github.com/inovacc/gitc/internal/store"
@@ -161,7 +161,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 
 		return 0
 	case "audit":
-		return runAudit(args[1:], st)
+		return auditcmd.Run(args[1:], st)
 	case "install":
 		apply := false
 
@@ -203,9 +203,9 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 
 		return 0
 	case "scrub":
-		return runScrub(ctx, args[1:])
+		return scrubcmd.Run(ctx, args[1:])
 	case "scan":
-		return runScan(args[1:])
+		return scancmd.Run(args[1:])
 	case "fetch-git":
 		return provision.FetchGit(ctx, args[1:])
 	case "update":
@@ -299,97 +299,6 @@ func hasHelpFlag(args []string) bool {
 	return false
 }
 
-// runAudit renders the audit log: a compact one-line summary by default, or the
-// full record with --wide/-w. An optional numeric argument limits the row count.
-func runAudit(args []string, st *store.Store) int {
-	if st == nil {
-		fmt.Fprintln(os.Stderr, "gitc: audit log unavailable")
-		return 1
-	}
-
-	n := 0
-	wide := false
-	verify := false
-	plain := false
-
-	for _, a := range args {
-		switch a {
-		case "--wide", "-w":
-			wide = true
-		case "--verify":
-			verify = true
-		case "--plain":
-			plain = true
-		default:
-			if v, err := strconv.Atoi(a); err == nil {
-				n = v
-			}
-		}
-	}
-
-	if verify {
-		return runAuditVerify(st)
-	}
-
-	// On a terminal, browse interactively; a pipe/redirect, --plain, or --wide
-	// gets the scriptable text render. The TUI loads the most recent rows
-	// (default 500) so a big log stays responsive.
-	if !wide && !plain && stdoutIsTTY() {
-		return runAuditTUI(st, auditLimit(n, 500))
-	}
-
-	if err := st.Tail(auditLimit(n, 20), wide, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
-		return 1
-	}
-
-	return 0
-}
-
-// auditLimit returns n when the user gave a positive count, else the default.
-func auditLimit(n, def int) int {
-	if n > 0 {
-		return n
-	}
-
-	return def
-}
-
-// stdoutIsTTY reports whether stdout is an interactive terminal (not a pipe or
-// file), using only the standard library so no isatty dependency is pulled in.
-func stdoutIsTTY() bool {
-	fi, err := os.Stdout.Stat()
-	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
-}
-
-// runAuditVerify checks the tamper-evident hash chain and reports whether the
-// audit log is intact.
-func runAuditVerify(st *store.Store) int {
-	res, err := st.Verify()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gitc: %v\n", err)
-		return 1
-	}
-
-	if res.Intact {
-		fmt.Printf("audit chain intact: %d row(s) verified", res.Checked)
-
-		if res.Legacy > 0 {
-			fmt.Printf(", %d legacy (pre-hash) row(s)", res.Legacy)
-		}
-
-		fmt.Println()
-
-		return 0
-	}
-
-	fmt.Fprintf(os.Stderr,
-		"audit chain BROKEN at row id %d (%d verified before the break): a row was deleted or edited\n",
-		res.BrokenID, res.Checked)
-
-	return 1
-}
-
 // printSelfInfo shows gitc's identity: version, resolved git backend, audit DB.
 func printSelfInfo() {
 	fmt.Printf("gitc %s — git wrapper with forensic audit, secret scan, history scrub\n", version)
@@ -419,323 +328,6 @@ func printMetaHelp() {
 	fmt.Fprintln(os.Stderr, "  git gitc sh|bash [args] launch the managed backend's shell (also the sh/bash shims)")
 	fmt.Fprintln(os.Stderr, "  git sync|undo|log-graph|quick-commit    built-in shortcuts")
 	fmt.Fprintln(os.Stderr, "  git gitc version        print gitc's own version")
-}
-
-// scrubFlags holds the parsed `git scrub` options.
-type scrubFlags struct {
-	paths       []string
-	invertPaths bool
-	replaceText string
-	force       bool
-	dryRun      bool
-	prune       string
-}
-
-// runScrub implements `git scrub` (a.k.a. `git gitc scrub`): a guarded front end
-// to the filterrepo history rewriter. It is named scrub, not clean, so it never
-// shadows real `git clean`. Without --force it prints the plan and refuses to
-// mutate; --dry-run exercises the export+transform pipeline but discards the
-// import so the repository is left untouched.
-func runScrub(ctx context.Context, args []string) int {
-	fl, err := parseScrubFlags(args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
-		return 2
-	}
-
-	prune, err := parsePruneMode(fl.prune)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
-		return 2
-	}
-
-	spec := filterrepo.NewPathSpec()
-	for _, p := range fl.paths {
-		if aerr := spec.AddMatch([]byte(p)); aerr != nil {
-			fmt.Fprintf(os.Stderr, "git scrub: %v\n", aerr)
-			return 2
-		}
-	}
-
-	spec.Invert = fl.invertPaths
-
-	var rules *filterrepo.ReplaceRules
-	if fl.replaceText != "" {
-		rules, err = filterrepo.ParseReplaceText(fl.replaceText)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "git scrub: reading --replace-text: %v\n", err)
-			return 1
-		}
-	}
-
-	// Resolve the real git backend so the rewrite never re-enters the gitc shim.
-	self, _ := os.Executable()
-
-	b, berr := backend.Resolve(provision.ManagedGitPath(), self)
-	if berr != nil {
-		fmt.Fprintf(os.Stderr, "git scrub: %v\n", berr)
-		return 1
-	}
-
-	printScrubPlan(fl)
-
-	if !fl.force && !fl.dryRun {
-		fmt.Fprintln(os.Stderr, "\nThis rewrites history irreversibly. Nothing has been changed.")
-		fmt.Fprintln(os.Stderr, "Re-run with --dry-run to preview, or --force to apply.")
-
-		return 0
-	}
-
-	opts := filterrepo.Options{
-		RepoDir:     ".",
-		GitBin:      b.Path,
-		Paths:       spec,
-		ReplaceText: rules,
-		Prune:       prune,
-		// A dry run must not be blocked by the fresh-clone guard, since it never
-		// mutates; --force is still required for a real rewrite.
-		Force:  fl.force || fl.dryRun,
-		DryRun: fl.dryRun,
-	}
-
-	if err := filterrepo.Run(ctx, opts); err != nil {
-		fmt.Fprintf(os.Stderr, "git scrub: %v\n", err)
-		return 1
-	}
-
-	if fl.dryRun {
-		fmt.Println("dry run complete; repository unchanged.")
-	} else {
-		fmt.Println("history rewrite complete; repository repacked.")
-	}
-
-	return 0
-}
-
-// parseScrubFlags parses the clean subcommand's flags without using the flag
-// package so --path can repeat, matching the manual style used elsewhere.
-func parseScrubFlags(args []string) (scrubFlags, error) {
-	fl := scrubFlags{prune: "auto"}
-
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		next := func() (string, error) {
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("%s requires a value", a)
-			}
-
-			i++
-
-			return args[i], nil
-		}
-
-		switch a {
-		case "--path":
-			v, err := next()
-			if err != nil {
-				return fl, err
-			}
-
-			fl.paths = append(fl.paths, v)
-		case "--invert-paths":
-			fl.invertPaths = true
-		case "--replace-text":
-			v, err := next()
-			if err != nil {
-				return fl, err
-			}
-
-			fl.replaceText = v
-		case "--prune":
-			v, err := next()
-			if err != nil {
-				return fl, err
-			}
-
-			fl.prune = v
-		case "--force":
-			fl.force = true
-		case "--dry-run":
-			fl.dryRun = true
-		default:
-			return fl, fmt.Errorf("unknown flag %q", a)
-		}
-	}
-
-	return fl, nil
-}
-
-// parsePruneMode maps the --prune flag to a filterrepo.PruneMode.
-func parsePruneMode(s string) (filterrepo.PruneMode, error) {
-	switch s {
-	case "", "auto":
-		return filterrepo.PruneAuto, nil
-	case "always":
-		return filterrepo.PruneAlways, nil
-	case "never":
-		return filterrepo.PruneNever, nil
-	default:
-		return filterrepo.PruneAuto, fmt.Errorf("invalid --prune value %q (want auto|always|never)", s)
-	}
-}
-
-// printScrubPlan describes what the rewrite would do, to stderr, so the operator
-// sees the plan whether or not it is applied.
-func printScrubPlan(fl scrubFlags) {
-	fmt.Fprintln(os.Stderr, "gitc scrub plan:")
-
-	if len(fl.paths) > 0 {
-		verb := "keep only"
-		if fl.invertPaths {
-			verb = "remove"
-		}
-
-		fmt.Fprintf(os.Stderr, "  paths: %s %v\n", verb, fl.paths)
-	}
-
-	if fl.replaceText != "" {
-		fmt.Fprintf(os.Stderr, "  replace-text: apply rules from %s\n", fl.replaceText)
-	}
-
-	if len(fl.paths) == 0 && fl.replaceText == "" {
-		fmt.Fprintln(os.Stderr, "  (no --path or --replace-text given: history would be re-exported unchanged)")
-	}
-
-	fmt.Fprintf(os.Stderr, "  prune empty commits: %s\n", fl.prune)
-
-	mode := "APPLY (rewrites history, then repacks)"
-	if fl.dryRun {
-		mode = "dry run (no changes)"
-	} else if !fl.force {
-		mode = "preview only (pass --force to apply)"
-	}
-
-	fmt.Fprintf(os.Stderr, "  mode: %s\n", mode)
-}
-
-// runScan implements `git scan [path]`: a detection-only secret scan of
-// the working tree using the gitleaks embedded ruleset. It never mutates the
-// repository. It prints one redacted line per finding and a summary, exiting 1
-// if any secrets are found (so it is usable as a CI gate) and 0 when clean.
-func runScan(args []string) int {
-	path := "."
-	strict := false
-
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--audit":
-			return runScanAudit()
-		case a == "--strict":
-			strict = true
-		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(os.Stderr, "git scan: unknown flag %q\n", a)
-			return 2
-		default:
-			path = a
-		}
-	}
-
-	sc, err := scan.New()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scan: %v\n", err)
-		return 1
-	}
-
-	res, err := sc.ScanDir(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scan: %v\n", err)
-		return 1
-	}
-
-	for _, f := range res.Findings {
-		loc := f.File
-		if f.StartLine > 0 {
-			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
-		}
-
-		fmt.Printf("%s\t%s\t%s\n", f.RuleID, loc, scan.Mask(f.Secret))
-	}
-
-	reportSkipped(res.Skipped)
-
-	switch {
-	case len(res.Findings) > 0:
-		fmt.Printf("scan: %d potential secret(s) found in %s\n", len(res.Findings), path)
-		return 1
-	case strict && len(res.Skipped) > 0:
-		fmt.Printf("scan: no secrets found, but %d file(s) could not be read (--strict) in %s\n", len(res.Skipped), path)
-		return 1
-	default:
-		fmt.Printf("scan clean: no secrets found in %s (%d file(s) skipped)\n", path, len(res.Skipped))
-		return 0
-	}
-}
-
-// reportSkipped warns (to stderr) about files the scan could not read, so a
-// clean result is never mistaken for a complete one. The list is capped to keep
-// output readable.
-func reportSkipped(skipped []scan.Skip) {
-	if len(skipped) == 0 {
-		return
-	}
-
-	const maxList = 10
-
-	fmt.Fprintf(os.Stderr, "git scan: %d file(s) could not be read:\n", len(skipped))
-
-	for i, sk := range skipped {
-		if i == maxList {
-			fmt.Fprintf(os.Stderr, "  ... and %d more\n", len(skipped)-maxList)
-			break
-		}
-
-		fmt.Fprintf(os.Stderr, "  %s: %s\n", sk.Path, sk.Reason)
-	}
-}
-
-// runScanAudit implements `git scan --audit`: it scans the captured argv and
-// env of every audit-log row for secrets that slipped past write-time redaction,
-// printing the row id per finding. Exit 1 if any are found (CI-usable).
-func runScanAudit() int {
-	st, err := store.Open(provision.AuditDBPath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
-		return 1
-	}
-
-	defer func() { _ = st.Close() }()
-
-	rows, err := st.RawRows()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
-		return 1
-	}
-
-	sc, err := scan.New()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git scan --audit: %v\n", err)
-		return 1
-	}
-
-	found := 0
-
-	for _, row := range rows {
-		for _, f := range sc.ScanString(row.Argv + "\n" + row.Env) {
-			found++
-
-			fmt.Printf("row %d\t%s\t%s\n", row.ID, f.RuleID, scan.Mask(f.Secret))
-		}
-	}
-
-	if found == 0 {
-		fmt.Printf("scan --audit clean: no secrets in %d audited row(s)\n", len(rows))
-		return 0
-	}
-
-	fmt.Printf("scan --audit: %d potential secret(s) across %d audited row(s)\n", found, len(rows))
-
-	return 1
 }
 
 // cleanShimBackups best-effort removes stale `*.old` binaries left behind by a
