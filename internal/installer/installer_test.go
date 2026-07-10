@@ -3,8 +3,38 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestInstallHardlinksShellShims(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("sh/bash shims are Windows-only")
+	}
+
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+
+	res, err := Install(false)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	gi, err := os.Stat(res.ShimGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"sh.exe", "bash.exe"} {
+		si, err := os.Stat(filepath.Join(filepath.Dir(res.ShimGit), name))
+		if err != nil {
+			t.Fatalf("%s not created: %v", name, err)
+		}
+
+		if !os.SameFile(gi, si) {
+			t.Errorf("%s should be a hard link to git.exe (share the inode)", name)
+		}
+	}
+}
 
 func TestSameExe(t *testing.T) {
 	dir := t.TempDir()
