@@ -65,6 +65,23 @@ func New() (*Scanner, error) {
 	return &Scanner{detector: d}, nil
 }
 
+// Mask returns a display-safe rendering of a detected secret: the first few
+// characters followed by a fixed run of asterisks, so a finding can be reported
+// (in `git scan`, the secret gate, or the audit view) without printing the full
+// secret.
+func Mask(secret string) string {
+	if secret == "" {
+		return "<redacted>"
+	}
+
+	const keep = 4
+	if len(secret) <= keep {
+		return strings.Repeat("*", len(secret))
+	}
+
+	return secret[:keep] + strings.Repeat("*", 6)
+}
+
 // ScanString scans a single string and returns any secret findings.
 func (s *Scanner) ScanString(content string) []report.Finding {
 	return s.detector.DetectString(content)

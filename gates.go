@@ -354,7 +354,7 @@ func enforceSecretGate(pol policy.Policy, args []string, gitPath string) (int, b
 			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
 		}
 
-		fmt.Fprintf(os.Stderr, "  %s\t%s\t%s\n", f.RuleID, loc, maskSecret(f.Secret))
+		fmt.Fprintf(os.Stderr, "  %s\t%s\t%s\n", f.RuleID, loc, scan.Mask(f.Secret))
 	}
 
 	if !pol.SecretGate.Blocks() {

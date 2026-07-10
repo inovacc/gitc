@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestMask(t *testing.T) {
+	cases := map[string]string{
+		"":                     "<redacted>",
+		"abc":                  "***",
+		"abcd":                 "****",
+		"sk_live_longsecretxx": "sk_l******",
+	}
+	for in, want := range cases {
+		if got := Mask(in); got != want {
+			t.Errorf("Mask(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestScanStringDetectsGitLabPAT(t *testing.T) {
 	s, err := New()
 	if err != nil {
