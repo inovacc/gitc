@@ -18,6 +18,24 @@ func TestPinnedAvailableMatchesPlatform(t *testing.T) {
 	}
 }
 
+func TestManifestForFlavor(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"":        "Git-full", // default
+		"full":    "Git-full",
+		"busybox": "MinGit-busybox",
+		"minimal": "MinGit",
+		"unknown": "MinGit",
+	}
+
+	for flavor, wantFlavor := range cases {
+		if got := manifestForFlavor(flavor).Flavor; got != wantFlavor {
+			t.Errorf("manifestForFlavor(%q).Flavor = %q, want %q", flavor, got, wantFlavor)
+		}
+	}
+}
+
 func TestAppUUID(t *testing.T) {
 	if appUUID("app/abc/v1") != "abc" {
 		t.Error("app install uuid should be the second path segment")
