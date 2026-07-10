@@ -122,10 +122,42 @@ func SettingsPath() string {
 	return filepath.Join(DataDir(), "settings.json")
 }
 
-// PolicyPath returns the path to policy.json, the machine/org enforcement
-// policy (secret gate, remote allowlist). Absent means no enforcement.
+// PolicyPath returns the DEPRECATED per-user policy.json location. It is derived
+// from the agent-mutable LOCALAPPDATA/XDG_DATA_HOME, so enforcement policy should
+// live at MachinePolicyPath instead; this remains a fallback for migration.
 func PolicyPath() string {
 	return filepath.Join(DataDir(), "policy.json")
+}
+
+// MachineConfigDir returns the machine-wide (admin-owned) config directory for
+// gitc's enforcement policy. It is deliberately NOT derived from the per-user,
+// agent-mutable LOCALAPPDATA/XDG_DATA_HOME, so a compromised agent cannot
+// relocate the policy to an empty dir to disable the gate. Windows uses
+// %ProgramData%\gitc (falling back to C:\ProgramData); other platforms /etc/gitc.
+func MachineConfigDir() string {
+	if runtime.GOOS == osWindows {
+		base := os.Getenv("ProgramData")
+		if base == "" {
+			base = `C:\ProgramData`
+		}
+
+		return filepath.Join(base, appName)
+	}
+
+	return filepath.Join("/etc", appName)
+}
+
+// MachinePolicyPath is the primary (machine-wide) policy.json location.
+func MachinePolicyPath() string {
+	return filepath.Join(MachineConfigDir(), "policy.json")
+}
+
+// EnforceMarkerPath is a machine-wide marker file: when present, a missing or
+// unreadable policy fails CLOSED (blocks) rather than defaulting to no
+// enforcement — so relocating the user dir to an empty path cannot disable the
+// gate on a host where enforcement was provisioned.
+func EnforceMarkerPath() string {
+	return filepath.Join(MachineConfigDir(), "ENFORCE")
 }
 
 // ManagedGitPath returns the path to the newest downloaded MinGit git binary

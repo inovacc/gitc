@@ -51,3 +51,16 @@ deferred as low value / high churn:
   `task git:build` (needs a C toolchain). System-git fallback works meanwhile.
 - git2go/libgit2 enrichment backend as an alternative to the exec-parse
   enricher (optional acceleration; interface seam already exists).
+
+## Deprecations & security follow-ups
+
+- **Per-user `policy.json` location — DEPRECATED (removal 2026-09-01).** Enforcement
+  policy now resolves from the machine dir (`%ProgramData%\gitc\policy.json` /
+  `/etc/gitc/policy.json`) first, since the per-user `%LOCALAPPDATA%`/`XDG_DATA_HOME`
+  path is agent-relocatable (SEC-2/H-27). The per-user path still works as a
+  fallback and logs a deprecation warning; migrate policies to the machine dir.
+  An `ENFORCE` marker in the machine dir makes a missing policy fail closed.
+- **Record the resolved policy path in the audit record (SEC-2 follow-up).**
+  `resolvePolicy` already returns the path it used; persisting it per audit row so
+  a policy relocation is forensically visible needs a store schema migration
+  (new `resolved_policy_path` column) + runner plumbing. Deferred from H-27.
