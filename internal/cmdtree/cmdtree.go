@@ -1,4 +1,8 @@
-package main
+// Package cmdtree renders gitc's command catalog as a navigable tree (the
+// `git cmdtree` command). The catalog is built from gitc's real command surface
+// — its first-class meta commands, the gitc namespace, and the shortcut set —
+// rather than a cobra tree, since gitc uses a manual router.
+package cmdtree
 
 import (
 	"bytes"
@@ -137,8 +141,10 @@ type cmdtreeOpts struct {
 	asJSON  bool
 }
 
-// runCmdtree renders gitc's command catalog as a tree (verbose by default).
-func runCmdtree(args []string) int {
+// Run renders gitc's command catalog as a tree (verbose by default). It parses
+// `git cmdtree` flags (-b brief, -c NAME single command, --json) and returns a
+// process exit code.
+func Run(args []string) int {
 	opts, err := parseCmdtreeFlags(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git cmdtree: %v\n", err)
