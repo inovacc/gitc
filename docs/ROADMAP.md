@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:002 -->
+<!-- rev:003 -->
 
 gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
 agents** — stop agents leaking secrets/sensitive data through git (see the
@@ -58,24 +58,27 @@ README "Purpose" section).
 
 ## Test coverage
 
-Total **42.9%** (`go test -cover ./...`).
+Total **45.8%** (`go test -cover ./...`).
 
 | Package | % | | Package | % |
 |---------|---|---|---------|---|
-| gitargs | 100.0 | | store | 62.3 |
-| redact | 100.0 | | filterrepo | 61.9 |
-| router | 100.0 | | backend | 48.1 |
-| uuidv7 | 95.8 | | selfupdate | 45.4 |
-| origin | 93.3 | | paths | 38.1 |
-| policy | 91.5 | | gitwin | 37.4 |
-| enrich | 76.6 | | main | 3.1 |
-| scan | 70.8 | | installer/runner/shortcut | 0.0 |
-| settings | 68.8 | | | |
+| gitargs/redact/router/shortcut | 100.0 | | store | 62.3 |
+| uuidv7 | 95.8 | | filterrepo | 61.9 |
+| origin | 93.3 | | paths | 61.9 |
+| enrich | 76.6 | | installer | 57.9 |
+| policy | 76.7 | | gitwin | 48.9 |
+| scan | 70.8 | | backend | 48.1 |
+| settings | 68.8 | | runner | 46.1 |
+| selfupdate | 45.4 | | main | 3.1 |
 
 ## Next
 
-- [ ] Raise coverage toward **≥ 70%** — `runner`, `installer`, `shortcut`, and
-      `main` are still thin.
+- [ ] Raise coverage toward **≥ 70%** (now 45.8%) — the 0%-covered packages are
+      cleared; `main` (3%) is the remaining gap, testable via table-driven
+      `run()` routing tests with a fake backend.
+- [ ] Context threading (H-12 store, H-13 filterrepo) — deferred low-leverage
+      hardening ([BACKLOG.md](BACKLOG.md)); makes Ctrl-C cancel scrub's internal
+      git calls and audit writes.
 - [x] Secret-gate **mode** (`policy.secretGate.mode: block|warn`) — warn reports
       findings and proceeds; block (default) refuses. (Per-severity thresholds
       aren't feasible — gitleaks findings carry no severity.)
