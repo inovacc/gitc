@@ -84,3 +84,11 @@ deferred as low value / high churn:
   commit range a `push` sends (`git rev-list <remote>..<local>`). A secret
   committed while the gate was off and removed from the worktree still ships on
   push. Needs a gitleaks git-log/range mode in internal/scan. Deferred.
+
+- **Pre-flight commit scan — SHIPPED (supersedes part of the SEC-7 residual).**
+  `git commit` now always runs a pre-flight secret scan of BOTH the staged index
+  (`git show :<path>`) and the working tree; findings warn by default and a
+  policy secretGate (block mode) escalates to a hard block. Remaining SEC-7
+  residual: scanning the push commit-range (`git rev-list <remote>..<local>`).
+  Perf note: the always-on working-tree scan runs on every commit — for very
+  large repos consider a staged-only fast path or a size cap.

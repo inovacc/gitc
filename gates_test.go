@@ -2,13 +2,71 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/inovacc/gitc/internal/policy"
+	"github.com/inovacc/gitc/internal/scan"
+	"github.com/zricethezav/gitleaks/v8/report"
 )
+
+// TestCommitPreflightVerdict covers the always-on pre-flight decision: clean
+// proceeds, findings warn-and-proceed by default, and block mode refuses.
+func TestCommitPreflightVerdict(t *testing.T) {
+	if code, blocked := commitPreflightVerdict(nil, false, io.Discard); blocked || code != 0 {
+		t.Error("no findings must allow the commit")
+	}
+
+	f := []report.Finding{{RuleID: "stripe", File: "config.env", Secret: "sk_live_x", StartLine: 1}}
+
+	if code, blocked := commitPreflightVerdict(f, false, io.Discard); blocked || code != 0 {
+		t.Error("warn mode must let the commit proceed despite findings")
+	}
+
+	if code, blocked := commitPreflightVerdict(f, true, io.Discard); !blocked || code != 1 {
+		t.Error("block mode must refuse the commit on a finding")
+	}
+}
+
+// TestScanStagedDetects stubs the git seam so scanStaged sees a staged file whose
+// content carries a secret, and asserts it is detected.
+func TestScanStagedDetects(t *testing.T) {
+	sc, err := scan.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orig := gitBytes
+
+	t.Cleanup(func() { gitBytes = orig })
+
+	// Assemble the token from split literals (no contiguous secret in source).
+	secret := "stripe = sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
+	gitBytes = func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "diff":
+			return []byte("config.env\n"), nil
+		case "show":
+			return []byte(secret), nil
+		}
+
+		return nil, nil
+	}
+
+	if findings := scanStaged(sc, "git"); len(findings) == 0 {
+		t.Error("a secret in staged content must be detected")
+	}
+}
+
+func TestDedupeFindings(t *testing.T) {
+	f := report.Finding{RuleID: "r", File: "f", Secret: "s", StartLine: 1}
+	if out := dedupeFindings([]report.Finding{f, f}); len(out) != 1 {
+		t.Errorf("dedupeFindings = %d, want 1", len(out))
+	}
+}
 
 // plantSecretRepo writes a working tree containing a detectable secret — a
 // Stripe live-key-formatted token, which the gitleaks default ruleset matches

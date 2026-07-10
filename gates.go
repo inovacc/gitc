@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/policy"
 	"github.com/inovacc/gitc/internal/scan"
+	"github.com/zricethezav/gitleaks/v8/report"
 )
 
 // gitQueryTimeout bounds the read-only git queries the allowlist runs to resolve
@@ -32,7 +35,15 @@ func enforceGates(args []string, gitPath string) (int, bool) {
 		return 1, true
 	}
 
-	// Enforcement is opt-in; with neither gate enabled there is nothing to do
+	// Always-on pre-flight secret scan on commit: scan the staged content AND the
+	// working tree before the commit is created, regardless of policy. Findings
+	// warn by default and let the commit proceed; a policy secretGate in block
+	// mode escalates to a hard refusal.
+	if subcommand(args) == "commit" {
+		return preflightCommitScan(args, gitPath, pol)
+	}
+
+	// Enforcement is opt-in; with neither gate enabled there is nothing else to do
 	// (and no reason to pay any alias/remote-resolution cost).
 	if !pol.SecretGate.Enabled && !pol.RemoteAllow.Enabled {
 		return 0, false
@@ -365,6 +376,143 @@ func enforceSecretGate(pol policy.Policy, args []string, gitPath string) (int, b
 	fmt.Fprintln(os.Stderr, "gitc: BLOCKED — remove or scrub the secret(s), then retry.")
 
 	return 1, true
+}
+
+// subcommand returns the git subcommand token past any leading global flags.
+func subcommand(args []string) string {
+	if idx := gitargs.SubcommandIndex(args); idx >= 0 {
+		return args[idx]
+	}
+
+	return ""
+}
+
+// preflightCommitScan is the always-on pre-flight secret scan for a commit. It
+// scans BOTH the staged content (what the commit will record) and the working
+// tree, reports any findings (credential-masked), and blocks only when a policy
+// secretGate applies to the command in block mode — otherwise it warns and lets
+// the commit proceed. Runs even with no policy present.
+func preflightCommitScan(args []string, gitPath string, pol policy.Policy) (int, bool) {
+	sc, err := scan.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gitc: pre-flight scan: %v\n", err)
+		// A scanner build failure blocks only under an explicit block-mode policy;
+		// otherwise a tool problem must not wedge every commit.
+		if pol.SecretGateApplies(args) && pol.SecretGate.Blocks() {
+			return 1, true
+		}
+
+		return 0, false
+	}
+
+	findings := dedupeFindings(append(scanStaged(sc, gitPath), scanTree(sc, args, gitPath)...))
+	blockMode := pol.SecretGateApplies(args) && pol.SecretGate.Blocks()
+
+	return commitPreflightVerdict(findings, blockMode, os.Stderr)
+}
+
+// scanTree scans the working tree the commit targets.
+func scanTree(sc *scan.Scanner, args []string, gitPath string) []report.Finding {
+	res, err := sc.ScanDir(secretScanDir(args, gitPath))
+	if err != nil {
+		return nil
+	}
+
+	return res.Findings
+}
+
+// scanStaged scans the staged blob content of each added/modified path — exactly
+// what the commit will record, which the working-tree scan can miss (a secret
+// staged then removed from the working copy still ships).
+func scanStaged(sc *scan.Scanner, gitPath string) []report.Finding {
+	names, err := gitBytes(gitPath, "diff", "--cached", "--name-only", "--diff-filter=ACM")
+	if err != nil {
+		return nil
+	}
+
+	var findings []report.Finding
+
+	for _, name := range strings.Split(strings.TrimSpace(string(names)), "\n") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		content, err := gitBytes(gitPath, "show", ":"+name)
+		if err != nil {
+			continue
+		}
+
+		findings = append(findings, sc.ScanBytes(name, content)...)
+	}
+
+	return findings
+}
+
+// gitBytes runs a read-only git command and returns raw stdout. It is a package
+// var so the staged scan can be stubbed in tests. A timeout is surfaced as the
+// context error.
+var gitBytes = func(gitPath string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitQueryTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, gitPath, args...).Output()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	return out, err
+}
+
+// dedupeFindings collapses identical findings (the same secret can surface in
+// both the staged blob and the working-tree copy).
+func dedupeFindings(fs []report.Finding) []report.Finding {
+	seen := make(map[string]bool, len(fs))
+
+	var out []report.Finding
+
+	for _, f := range fs {
+		key := f.File + "|" + f.RuleID + "|" + f.Secret + "|" + strconv.Itoa(f.StartLine)
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+
+		out = append(out, f)
+	}
+
+	return out
+}
+
+// commitPreflightVerdict reports findings (credential-masked) and decides the
+// gate result: block when blockMode is set, otherwise warn and proceed. Pure —
+// the collection is done by the callers, so the decision is unit-testable.
+func commitPreflightVerdict(findings []report.Finding, blockMode bool, w io.Writer) (int, bool) {
+	if len(findings) == 0 {
+		return 0, false
+	}
+
+	fmt.Fprintf(w, "gitc: pre-flight secret scan: %d secret(s) in the commit / working tree:\n", len(findings))
+
+	for _, f := range findings {
+		loc := f.File
+		if f.StartLine > 0 {
+			loc = fmt.Sprintf("%s:%d", f.File, f.StartLine)
+		}
+
+		fmt.Fprintf(w, "  %s\t%s\t%s\n", f.RuleID, loc, scan.Mask(f.Secret))
+	}
+
+	if blockMode {
+		fmt.Fprintln(w, "gitc: BLOCKED — remove or scrub the secret(s), then retry.")
+		return 1, true
+	}
+
+	fmt.Fprintln(w, "gitc: pre-flight scan (warn): commit proceeding. "+
+		"Enable a policy.json secretGate (block mode) to enforce.")
+
+	return 0, false
 }
 
 // secretScanDir resolves the working tree the command will actually operate on,
