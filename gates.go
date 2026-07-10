@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inovacc/gitc/internal/gitargs"
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/policy"
 	"github.com/inovacc/gitc/internal/scan"
@@ -31,11 +32,74 @@ func enforceGates(args []string, gitPath string) (int, bool) {
 		return 1, true
 	}
 
+	// Enforcement is opt-in; with neither gate enabled there is nothing to do
+	// (and no reason to pay any alias/remote-resolution cost).
+	if !pol.SecretGate.Enabled && !pol.RemoteAllow.Enabled {
+		return 0, false
+	}
+
+	// A command-line alias can hide a gated verb from classification (SEC-6):
+	// `git -c alias.p=push p` is seen as subcommand "p" and neither gate fires.
+	// Refuse an injected alias that runs a gated verb or a shell command.
+	if key, ok := aliasInjection(args); ok {
+		fmt.Fprintf(os.Stderr,
+			"gitc: BLOCKED by policy: command-line alias %q runs a gated command and is not permitted\n", key)
+
+		return 1, true
+	}
+
 	if code, blocked := enforceRemoteAllowlist(pol, args, gitPath); blocked {
 		return code, true
 	}
 
 	return enforceSecretGate(pol, args)
+}
+
+// gatedVerbs are the git subcommands the gates care about (secret gate + remote
+// allowlist, plus the low-level exfil plumbing). An alias expanding to one of
+// these must not slip past classification.
+var gatedVerbs = map[string]bool{
+	"push": true, "commit": true, "fetch": true, "pull": true,
+	"clone": true, "remote": true, "send-pack": true, "http-push": true,
+}
+
+// aliasInjection reports whether args inject a command-line alias
+// (`-c alias.<name>=<value>`) that is the current subcommand and expands to a
+// gated verb or a shell command, returning the alias key. This is the precise
+// SEC-6 command-line vector; configured (pre-set) aliases are a tracked residual
+// (they need built-in-shadow-aware resolution).
+func aliasInjection(args []string) (string, bool) {
+	idx := gitargs.SubcommandIndex(args)
+	if idx < 0 {
+		return "", false
+	}
+
+	sub := args[idx]
+	key := "alias." + sub
+
+	for i := 0; i < len(args); i++ {
+		if args[i] != "-c" || i+1 >= len(args) {
+			continue
+		}
+
+		k, v, ok := strings.Cut(args[i+1], "=")
+		i++
+
+		if !ok || !strings.EqualFold(k, key) {
+			continue
+		}
+
+		val := strings.TrimSpace(v)
+		if strings.HasPrefix(val, "!") { // shell alias — opaque, refuse
+			return k, true
+		}
+
+		if fields := strings.Fields(val); len(fields) > 0 && gatedVerbs[fields[0]] {
+			return k, true
+		}
+	}
+
+	return "", false
 }
 
 // loadEnforcementPolicy resolves the machine/org policy, defending against an

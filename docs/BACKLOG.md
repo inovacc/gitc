@@ -64,3 +64,10 @@ deferred as low value / high churn:
   `resolvePolicy` already returns the path it used; persisting it per audit row so
   a policy relocation is forensically visible needs a store schema migration
   (new `resolved_policy_path` column) + runner plumbing. Deferred from H-27.
+
+- **Configured (pre-set) git alias resolution (SEC-6 residual).** H-30 blocks
+  command-line `-c alias.<name>=<gated-verb>` injection. A pre-configured alias
+  (`git config alias.p push` then `git p`) still evades gate classification.
+  Resolving configured aliases via `git config --get alias.<sub>` needs
+  built-in-shadow awareness (git ignores aliases named like a built-in), else it
+  false-positives on a benign `alias.status`. Deferred.

