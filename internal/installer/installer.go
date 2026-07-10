@@ -51,12 +51,11 @@ func Install(applyPath bool) (Result, error) {
 		return Result{}, fmt.Errorf("create shim dir: %w", err)
 	}
 
-	// Guard: a real git must be resolvable once the shim shadows git, or we'd
-	// break git entirely. Resolution skips the shim binary as "self".
-	b, err := backend.Resolve(paths.ManagedGitPath(), shimGit)
-	if err != nil {
-		return Result{}, fmt.Errorf("refusing to install: %w", err)
-	}
+	// A resolvable backend is NOT required to install. The shim shadows git, and
+	// on first use gitc auto-provisions the pinned MinGit (Windows) or resolves a
+	// system git / `git fetch-git`. Resolution skips the shim binary as "self";
+	// BackendPath is left empty when no backend exists yet (a fresh machine).
+	b, _ := backend.Resolve(paths.ManagedGitPath(), shimGit) //nolint:errcheck // missing backend is non-fatal here
 
 	// Copy gitc into the shim dir — unless we are already running *as* the shim
 	// (e.g. `git gitc install` where git is the installed shim). Windows cannot
