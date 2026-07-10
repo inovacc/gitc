@@ -35,21 +35,44 @@ func (s checkStatus) mark() string {
 	}
 }
 
-// runDoctor prints a health checklist of the gitc install and its backend. It
-// exits non-zero if any critical (fail) check does not pass, so it is usable in
-// CI or a post-install verification step.
-func runDoctor(_ []string) int {
-	worst := statusOK
+// checkResult is one collected doctor check: its outcome, a short label, and a
+// detail string (which also carries any remediation hint). Both the static
+// renderer and the TUI consume a slice of these.
+type checkResult struct {
+	status checkStatus
+	label  string
+	detail string
+}
+
+// runDoctor health-checks the gitc install and its backend. With a TTY it opens
+// an interactive TUI; otherwise (piped, CI, or `--plain`) it prints a static
+// checklist. It exits non-zero if any critical (fail) check does not pass, so it
+// stays usable in CI or a post-install verification step.
+func runDoctor(args []string) int {
+	results, worst := collectChecks()
+
+	if hasFlag(args, "--plain") || !stdoutIsTTY() {
+		return renderDoctorPlain(results, worst)
+	}
+
+	return runDoctorTUI(results, worst)
+}
+
+// collectChecks runs every doctor check and returns the results plus the worst
+// status seen.
+func collectChecks() ([]checkResult, checkStatus) {
+	var (
+		results []checkResult
+		worst   = statusOK
+	)
 
 	report := func(s checkStatus, name, detail string) {
 		if s > worst {
 			worst = s
 		}
 
-		fmt.Printf("%s %-22s %s\n", s.mark(), name, detail)
+		results = append(results, checkResult{status: s, label: name, detail: detail})
 	}
-
-	fmt.Println("gitc doctor:")
 
 	report(statusOK, "gitc version", version)
 
@@ -58,6 +81,17 @@ func runDoctor(_ []string) int {
 	checkGitRuns(report, b, ok)
 	checkShell(report, b, ok)
 	checkAudit(report)
+
+	return results, worst
+}
+
+// renderDoctorPlain prints the static checklist (the non-TTY / --plain path).
+func renderDoctorPlain(results []checkResult, worst checkStatus) int {
+	fmt.Println("gitc doctor:")
+
+	for _, r := range results {
+		fmt.Printf("%s %-22s %s\n", r.status.mark(), r.label, r.detail)
+	}
 
 	fmt.Println()
 
@@ -72,6 +106,33 @@ func runDoctor(_ []string) int {
 		fmt.Println("one or more checks failed.")
 		return 1
 	}
+}
+
+// exitCodeFor maps the worst check status to a process exit code (fail → 1).
+func exitCodeFor(worst checkStatus) int {
+	if worst == statusFail {
+		return 1
+	}
+
+	return 0
+}
+
+// stdoutIsTTY reports whether stdout is an interactive terminal (not a pipe or
+// file), using only the standard library so no isatty dependency is pulled in.
+func stdoutIsTTY() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
+}
+
+// hasFlag reports whether args contains the exact flag token.
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+
+	return false
 }
 
 // checkShim verifies the PATH shim exists and that plain `git` resolves to it.
