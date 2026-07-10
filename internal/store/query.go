@@ -167,10 +167,17 @@ func renderWide(w io.Writer, l auditLine) {
 		l.ts, l.user, l.exit, l.backend, tag, l.argv, formatEnrichment(l.enrichment))
 }
 
-// renderCompact prints a short one-line summary: time, exit, branch, command.
+// renderCompact prints a short one-line summary: time, status, branch, command.
+// A policy-refused row shows BLOCKED rather than an exit code so a blocked
+// attempt is not mistaken for a git-level failure.
 func renderCompact(w io.Writer, l auditLine) {
-	fmt.Fprintf(w, "%s  exit=%-2d  %-22s  %s\n",
-		shortTime(l.ts), l.exit, shortBranch(l.enrichment), shortArgv(l.argv, 64))
+	status := fmt.Sprintf("exit=%-2d", l.exit)
+	if l.mode == "blocked" {
+		status = "BLOCKED"
+	}
+
+	fmt.Fprintf(w, "%s  %-8s  %-22s  %s\n",
+		shortTime(l.ts), status, shortBranch(l.enrichment), shortArgv(l.argv, 64))
 }
 
 // shortTime extracts HH:MM:SS from an RFC3339 timestamp.

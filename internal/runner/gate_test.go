@@ -3,10 +3,13 @@ package runner
 import (
 	"context"
 	"io"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/shortcut"
+	"github.com/inovacc/gitc/internal/store"
 )
 
 // TestGuardBlocksPassthrough verifies the enforcement gate runs before a
@@ -64,5 +67,36 @@ func TestUnguardedRunnerHasNoGate(t *testing.T) {
 	r := New(backend.Backend{}, nil, nil, io.Discard)
 	if r.gate != nil {
 		t.Error("a freshly constructed runner must be unguarded until Guard is called")
+	}
+}
+
+// TestBlockedCommandIsAudited verifies a policy-refused command leaves a forensic
+// audit row even though git never ran.
+func TestBlockedCommandIsAudited(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "audit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = st.Close() }()
+
+	r := New(backend.Backend{}, st, nil, io.Discard)
+	r.Guard(func(context.Context, []string) (int, bool) { return 1, true })
+
+	if code := r.Passthrough(context.Background(), []string{"push", "origin"}); code != 1 {
+		t.Fatalf("blocked push should return 1, got %d", code)
+	}
+
+	rows, err := st.RawRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 1 {
+		t.Fatalf("a blocked command must record exactly one audit row, got %d", len(rows))
+	}
+
+	if !strings.Contains(rows[0].Argv, "push") {
+		t.Errorf("the blocked row must capture the refused argv, got %q", rows[0].Argv)
 	}
 }

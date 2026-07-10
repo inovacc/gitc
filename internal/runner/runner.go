@@ -119,11 +119,12 @@ func (r *Runner) Shortcut(ctx context.Context, sc shortcut.Shortcut, args []stri
 }
 
 // execAndAudit runs one git arg vector and writes one audit row. The enforcement
-// gate (if installed) runs first: a blocked vector never reaches git and is not
-// audited as an executed operation.
+// gate (if installed) runs first: a blocked vector never reaches git, but the
+// refused attempt IS recorded (mode "blocked") so a forensic trail exists.
 func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcutName string) int {
 	if r.gate != nil {
 		if code, blocked := r.gate(ctx, args); blocked {
+			r.auditBlocked(args, code)
 			return code
 		}
 	}
@@ -152,6 +153,22 @@ func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcut
 	r.writeAudit(rec)
 
 	return res.ExitCode
+}
+
+// auditBlocked records a policy-refused invocation (mode "blocked") so a
+// blocked exfil or secret-gated attempt leaves a tamper-evident trace even
+// though git never ran. Argv is credential-masked like any other row; help and
+// version are never gated so the auditable filter is a defensive no-op.
+func (r *Runner) auditBlocked(args []string, code int) {
+	if !auditable(args) {
+		return
+	}
+
+	rec := r.baseRecord(args, "blocked", "")
+	rec.TS = time.Now()
+	rec.ExitCode = code
+
+	r.writeAudit(rec)
 }
 
 // auditable reports whether an argv represents a real git operation worth
