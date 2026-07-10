@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:004 -->
+<!-- rev:005 -->
 
 gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
 agents** — stop agents leaking secrets/sensitive data through git (see the
@@ -58,7 +58,7 @@ README "Purpose" section).
 
 ## Test coverage
 
-Total **49.7%** (`go test -coverpkg=./... ./...`, merged profile).
+Total **51.2%** (`go test -coverpkg=./... ./...`, merged profile).
 
 | Package | % | | Package | % |
 |---------|---|---|---------|---|
@@ -68,16 +68,16 @@ Total **49.7%** (`go test -coverpkg=./... ./...`, merged profile).
 | policy | 84.0 | | gitwin | 52.2 |
 | enrich | 76.6 | | backend | 48.1 |
 | scan | 74.1 | | paths | 47.3 |
-| runner | 73.6 | | main | 31.6 |
+| runner | 73.6 | | main | 46.6 |
 | settings | 68.8 | | provision | 12.2 |
 | installer | 65.2 | | cmdtree / doctor | 0.0 |
 
 ## Next
 
-- [ ] Raise coverage toward **≥ 70%** (now 49.7%) — the remaining gaps are
-      `main` (31.6%, table-driven `run()`/`runMeta` routing tests with a fake
-      backend), the extracted `internal/provision` (12.2%), and the pure
-      `cmdtree`/`doctor` command packages (0%).
+- [ ] Raise coverage toward **≥ 70%** (now 51.2%) — `main` is at 46.6% (routing
+      / dispatch covered; the passthrough+shortcut path needs a fake-backend
+      harness); the remaining gaps are `internal/provision` (12.2%) and the pure
+      `cmdtree`/`doctor`/`scrubcmd`/`scancmd` command packages (0%).
 - [ ] Context threading (H-12 store, H-13 filterrepo) — deferred low-leverage
       hardening ([BACKLOG.md](BACKLOG.md)); makes Ctrl-C cancel scrub's internal
       git calls and audit writes.
