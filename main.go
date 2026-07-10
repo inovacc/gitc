@@ -58,6 +58,8 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) int {
+	cleanShimBackups()
+
 	shortcuts := shortcut.All()
 	dec := router.Classify(args, shortcuts)
 
@@ -977,6 +979,25 @@ func maskSecret(secret string) string {
 	}
 
 	return secret[:keep] + strings.Repeat("*", 6)
+}
+
+// cleanShimBackups best-effort removes stale `*.old` shim binaries left behind
+// by a self-update swap: a running .exe cannot delete itself, so `git update`
+// renames the old shim aside as <name>.old and it is cleared on a later startup
+// (when it is no longer the running process).
+func cleanShimBackups() {
+	dir := paths.ShimDir()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".old") {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 func auditDBPath() string {
