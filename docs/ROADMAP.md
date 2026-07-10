@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:003 -->
+<!-- rev:004 -->
 
 gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
 agents** — stop agents leaking secrets/sensitive data through git (see the
@@ -58,24 +58,26 @@ README "Purpose" section).
 
 ## Test coverage
 
-Total **45.8%** (`go test -cover ./...`).
+Total **49.7%** (`go test -coverpkg=./... ./...`, merged profile).
 
 | Package | % | | Package | % |
 |---------|---|---|---------|---|
-| gitargs/redact/router/shortcut | 100.0 | | store | 62.3 |
-| uuidv7 | 95.8 | | filterrepo | 61.9 |
-| origin | 93.3 | | paths | 61.9 |
-| enrich | 76.6 | | installer | 57.9 |
-| policy | 76.7 | | gitwin | 48.9 |
-| scan | 70.8 | | backend | 48.1 |
-| settings | 68.8 | | runner | 46.1 |
-| selfupdate | 45.4 | | main | 3.1 |
+| gitargs/redact/router/shortcut/shim | 100.0 | | filterrepo | 61.9 |
+| uuidv7 | 95.8 | | selfupdate | 60.0 |
+| origin | 93.3 | | store | 54.5 |
+| policy | 84.0 | | gitwin | 52.2 |
+| enrich | 76.6 | | backend | 48.1 |
+| scan | 74.1 | | paths | 47.3 |
+| runner | 73.6 | | main | 31.6 |
+| settings | 68.8 | | provision | 12.2 |
+| installer | 65.2 | | cmdtree / doctor | 0.0 |
 
 ## Next
 
-- [ ] Raise coverage toward **≥ 70%** (now 45.8%) — the 0%-covered packages are
-      cleared; `main` (3%) is the remaining gap, testable via table-driven
-      `run()` routing tests with a fake backend.
+- [ ] Raise coverage toward **≥ 70%** (now 49.7%) — the remaining gaps are
+      `main` (31.6%, table-driven `run()`/`runMeta` routing tests with a fake
+      backend), the extracted `internal/provision` (12.2%), and the pure
+      `cmdtree`/`doctor` command packages (0%).
 - [ ] Context threading (H-12 store, H-13 filterrepo) — deferred low-leverage
       hardening ([BACKLOG.md](BACKLOG.md)); makes Ctrl-C cancel scrub's internal
       git calls and audit writes.

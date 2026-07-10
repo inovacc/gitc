@@ -11,12 +11,14 @@ integrations:
   gitleaks as an external Go dependency (`github.com/zricethezav/gitleaks/v8`,
   embedded default ruleset) via `internal/scan`; `git scan [path]` scans
   the working tree, prints redacted findings, and exits 1 if any are found (CI
-  gate). Detection only — never mutates. Follow-up: the `--audit` flag to scan
-  the audit DB's captured argv/env is still a stub (working-tree scan shipped
-  first).
-- **Pre-flight secret gate (opt-in).** Optionally run a gitleaks check before
-  passing through commit/push, warning (not blocking by default) when a secret
-  is about to be committed or would be recorded raw in the audit log.
+  gate). Detection only — never mutates. Follow-up — DONE: `git scan --audit`
+  (`runScanAudit`) scans the audit DB's captured argv/env for secrets that
+  slipped past write-time redaction, printing the row id per finding (exit 1 if
+  any, CI-usable).
+- **Pre-flight secret gate — SHIPPED (see "Pre-flight commit scan" below).**
+  `git commit` always runs a pre-flight gitleaks scan of the staged index +
+  working tree; findings warn by default and a policy `secretGate` (block mode)
+  escalates to a hard block.
 - **History remediation — DONE (`git scrub`).** Native, single-binary
   history rewriting via the clean-room `internal/filterrepo` port of
   git-filter-repo (ADR 0003): purge paths (`--path`/`--invert-paths`) and redact
