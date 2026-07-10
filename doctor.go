@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/store"
@@ -24,38 +25,68 @@ const (
 	statusFail
 )
 
-func (s checkStatus) mark() string {
+// Doctor styling (lipgloss): a violet title banner, colored status badges, and
+// a subtle footer — a one-shot styled checklist. lipgloss auto-detects the
+// terminal's color profile and strips ANSI when output is piped or NO_COLOR is
+// set, so the same render is safe for CI and pipes.
+var (
+	dcTitle = lipgloss.NewStyle().Bold(true).
+		Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#4C1D95")).Padding(0, 1)
+	dcOK   = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E"))
+	dcWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))
+	dcFail = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
+	dcHelp = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+)
+
+// badge renders the colored status pill for a check (fixed 6 visible columns so
+// the label/detail columns stay aligned regardless of ANSI).
+func (s checkStatus) badge() string {
 	switch s {
 	case statusOK:
-		return "[ok]  "
+		return dcOK.Render("[ ok ]")
 	case statusWarn:
-		return "[warn]"
+		return dcWarn.Render("[warn]")
 	default:
-		return "[fail]"
+		return dcFail.Render("[fail]")
 	}
 }
 
 // checkResult is one collected doctor check: its outcome, a short label, and a
-// detail string (which also carries any remediation hint). Both the static
-// renderer and the TUI consume a slice of these.
+// detail string (which also carries any remediation hint).
 type checkResult struct {
 	status checkStatus
 	label  string
 	detail string
 }
 
-// runDoctor health-checks the gitc install and its backend. With a TTY it opens
-// an interactive TUI; otherwise (piped, CI, or `--plain`) it prints a static
-// checklist. It exits non-zero if any critical (fail) check does not pass, so it
-// stays usable in CI or a post-install verification step.
-func runDoctor(args []string) int {
+// runDoctor health-checks the gitc install and its backend and prints a one-shot
+// styled checklist. It exits non-zero if any critical (fail) check does not
+// pass, so it stays usable in CI or a post-install verification step.
+func runDoctor(_ []string) int {
 	results, worst := collectChecks()
 
-	if hasFlag(args, "--plain") || !stdoutIsTTY() {
-		return renderDoctorPlain(results, worst)
+	fmt.Println(dcTitle.Render("◆ gitc doctor "+version) + "\n")
+
+	for _, r := range results {
+		fmt.Printf("%s  %-22s %s\n", r.status.badge(), r.label, r.detail)
 	}
 
-	return runDoctorTUI(results, worst)
+	fmt.Println("\n" + summaryLine(worst))
+	fmt.Println(dcHelp.Render("checks only — no repo data read; `git where` shows resolved paths."))
+
+	return exitCodeFor(worst)
+}
+
+// summaryLine renders the overall verdict, colored by the worst status.
+func summaryLine(worst checkStatus) string {
+	switch worst {
+	case statusOK:
+		return dcOK.Render("all checks passed.")
+	case statusWarn:
+		return dcWarn.Render("passed with warnings.")
+	default:
+		return dcFail.Render("one or more checks failed.")
+	}
 }
 
 // collectChecks runs every doctor check and returns the results plus the worst
@@ -85,29 +116,6 @@ func collectChecks() ([]checkResult, checkStatus) {
 	return results, worst
 }
 
-// renderDoctorPlain prints the static checklist (the non-TTY / --plain path).
-func renderDoctorPlain(results []checkResult, worst checkStatus) int {
-	fmt.Println("gitc doctor:")
-
-	for _, r := range results {
-		fmt.Printf("%s %-22s %s\n", r.status.mark(), r.label, r.detail)
-	}
-
-	fmt.Println()
-
-	switch worst {
-	case statusOK:
-		fmt.Println("all checks passed.")
-		return 0
-	case statusWarn:
-		fmt.Println("passed with warnings.")
-		return 0
-	default:
-		fmt.Println("one or more checks failed.")
-		return 1
-	}
-}
-
 // exitCodeFor maps the worst check status to a process exit code (fail → 1).
 func exitCodeFor(worst checkStatus) int {
 	if worst == statusFail {
@@ -115,24 +123,6 @@ func exitCodeFor(worst checkStatus) int {
 	}
 
 	return 0
-}
-
-// stdoutIsTTY reports whether stdout is an interactive terminal (not a pipe or
-// file), using only the standard library so no isatty dependency is pulled in.
-func stdoutIsTTY() bool {
-	fi, err := os.Stdout.Stat()
-	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
-}
-
-// hasFlag reports whether args contains the exact flag token.
-func hasFlag(args []string, flag string) bool {
-	for _, a := range args {
-		if a == flag {
-			return true
-		}
-	}
-
-	return false
 }
 
 // checkShim verifies the PATH shim exists and that plain `git` resolves to it.
