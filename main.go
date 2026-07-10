@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/inovacc/gitc/internal/backend"
+	"github.com/inovacc/gitc/internal/cmdtree"
 	"github.com/inovacc/gitc/internal/enrich"
 	"github.com/inovacc/gitc/internal/filterrepo"
 	"github.com/inovacc/gitc/internal/gitwin"
@@ -169,7 +170,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 	// `git <cmd> --help` shows that command's usage (from the cmdtree catalog)
 	// rather than falling through to run it.
 	if cmd != "" && cmd != "help" && hasHelpFlag(args[1:]) {
-		return runCmdtree([]string{"-c", cmd})
+		return cmdtree.Run([]string{"-c", cmd})
 	}
 
 	switch cmd {
@@ -247,7 +248,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 	case "doctor":
 		return runDoctor(args[1:])
 	case "cmdtree":
-		return runCmdtree(args[1:])
+		return cmdtree.Run(args[1:])
 	case "sh", "bash":
 		// `git gitc sh` / `git gitc bash` — launch the managed backend's shell.
 		// The installed sh.exe/bash.exe shims reach this same logic by name.
