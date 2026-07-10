@@ -65,3 +65,25 @@ var pinnedBusyboxManifest = Manifest{
 func PinnedBusybox() Manifest {
 	return pinnedBusyboxManifest
 }
+
+// pinnedFullManifest is the FULL git-for-windows build (a .tar.bz2), which
+// bundles a complete MSYS2 environment — real bash AND sh — so both `#!/bin/sh`
+// and `#!/bin/bash` git hooks run. Larger than MinGit; git-for-windows ships it
+// for 64-bit and arm64 only (no 32-bit tarball).
+var pinnedFullManifest = Manifest{
+	Version: pinnedVersion,
+	Source:  tagURL,
+	Flavor:  "Git-full",
+	Assets: map[string]ManifestAsset{
+		"windows/amd64": winAsset("Git-2.55.0.2-64-bit.tar.bz2",
+			"5cfd35fadb11ac2f629c16f7be262f3f138cfe3f368331ad1e44f9abb5814882", 116921702),
+		"windows/arm64": winAsset("Git-2.55.0.2-arm64.tar.bz2",
+			"06c1c6c854628b9ac1081376bccc4a7b6ecd46ee14bb1bca10c57fa680234305", 159014090),
+	},
+}
+
+// PinnedFull returns the full git-for-windows manifest — a complete build with
+// real bash + sh for hook execution. 64-bit and arm64 only.
+func PinnedFull() Manifest {
+	return pinnedFullManifest
+}

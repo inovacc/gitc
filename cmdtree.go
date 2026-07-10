@@ -60,7 +60,8 @@ func gitcTree() cmdNode { //nolint:funlen // static command catalog
 	fetchFlags := []cmdFlag{
 		{Name: "latest", Type: "bool", Description: "query git-for-windows for the newest release (unpinned)"},
 		{Name: "list", Type: "bool", Description: "list recent git-for-windows releases"},
-		{Name: "busybox", Type: "bool", Description: "install the busybox MinGit (bundles a POSIX shell for hooks)"},
+		{Name: "busybox", Type: "bool", Description: "install the busybox MinGit (bundles POSIX sh for hooks)"},
+		{Name: "full", Type: "bool", Description: "install the full git (bash + sh; #!/bin/bash hooks); persists"},
 		{Name: "i-accept-unverified", Type: "bool", Description: "allow --latest despite no sha256 verification"},
 	}
 	updateFlags := []cmdFlag{

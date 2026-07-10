@@ -249,7 +249,7 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 // git-for-windows releases API for the newest version (no pinned hash); --list
 // shows recent releases.
 func runFetchGit(ctx context.Context, args []string) int {
-	var list, latest, acceptUnverified, busybox bool
+	var list, latest, acceptUnverified, busybox, full bool
 
 	for _, a := range args {
 		switch a {
@@ -261,6 +261,8 @@ func runFetchGit(ctx context.Context, args []string) int {
 			acceptUnverified = true
 		case "--busybox":
 			busybox = true
+		case "--full":
+			full = true
 		default:
 			fmt.Fprintf(os.Stderr, "gitc gitc fetch-git: unknown flag %q\n", a)
 			return 2
@@ -273,10 +275,59 @@ func runFetchGit(ctx context.Context, args []string) int {
 	case latest:
 		return fetchGitLatest(ctx, acceptUnverified)
 	case busybox:
-		return fetchGitPinnedManifest(ctx, gitwin.PinnedBusybox())
+		return fetchGitFlavor(ctx, "busybox")
+	case full:
+		return fetchGitFlavor(ctx, "full")
 	default:
-		return fetchGitPinnedManifest(ctx, gitwin.Pinned())
+		return fetchGitFlavor(ctx, currentFlavor())
 	}
+}
+
+// manifestForFlavor maps a backend flavor to its in-code pinned manifest:
+// "busybox" (MinGit + POSIX sh), "full" (full git with bash), else minimal MinGit.
+func manifestForFlavor(flavor string) gitwin.Manifest {
+	switch flavor {
+	case "busybox":
+		return gitwin.PinnedBusybox()
+	case "full":
+		return gitwin.PinnedFull()
+	default:
+		return gitwin.Pinned()
+	}
+}
+
+// currentFlavor returns the persisted backend flavor ("" when unset = minimal).
+func currentFlavor() string {
+	s, err := settings.Load(paths.SettingsPath())
+	if err != nil {
+		return ""
+	}
+
+	return s.Backend.Flavor
+}
+
+// fetchGitFlavor provisions the pinned backend for flavor and, on success,
+// persists the flavor so updates and auto-provision on this machine keep it.
+func fetchGitFlavor(ctx context.Context, flavor string) int {
+	code := fetchGitPinnedManifest(ctx, manifestForFlavor(flavor))
+	if code == 0 {
+		persistFlavor(flavor)
+	}
+
+	return code
+}
+
+// persistFlavor records the chosen backend flavor in settings.json.
+func persistFlavor(flavor string) {
+	sp := paths.SettingsPath()
+
+	s, err := settings.LoadOrInit(sp)
+	if err != nil || s.Backend.Flavor == flavor {
+		return
+	}
+
+	s.Backend.Flavor = flavor
+	_ = settings.Save(sp, s)
 }
 
 // fetchGitList prints the recent git-for-windows release tags.
@@ -342,7 +393,7 @@ func pinnedAvailable() bool {
 // installPinnedGit downloads and sha256-verifies the in-code pinned MinGit into
 // a fresh app/<uuid>/ install and returns the git.exe path (not yet activated).
 func installPinnedGit(ctx context.Context) (string, error) {
-	m := gitwin.Pinned()
+	m := manifestForFlavor(currentFlavor())
 
 	asset, ok := m.For(runtime.GOOS, runtime.GOARCH)
 	if !ok {
