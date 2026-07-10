@@ -23,6 +23,7 @@ import (
 
 	"github.com/inovacc/gitc/internal/backend"
 	"github.com/inovacc/gitc/internal/cmdtree"
+	"github.com/inovacc/gitc/internal/doctor"
 	"github.com/inovacc/gitc/internal/enrich"
 	"github.com/inovacc/gitc/internal/filterrepo"
 	"github.com/inovacc/gitc/internal/gitwin"
@@ -41,10 +42,6 @@ import (
 
 // version is injected at build time via -ldflags "-X main.version=...".
 var version = "dev"
-
-// osWindows is runtime.GOOS's value on Windows, hoisted to a const so the
-// platform checks scattered across the command layer share one literal.
-const osWindows = "windows"
 
 func main() {
 	// When invoked under the name sh/bash (via an installed shim), act as a
@@ -246,7 +243,11 @@ func runMeta(ctx context.Context, args []string, st *store.Store) int { //nolint
 	case "update":
 		return runUpdate(ctx, args[1:])
 	case "doctor":
-		return runDoctor(args[1:])
+		return doctor.Run(doctor.Config{
+			Version:        version,
+			ManagedGitPath: managedGitPath(),
+			AuditDBPath:    auditDBPath(),
+		}, args[1:])
 	case "cmdtree":
 		return cmdtree.Run(args[1:])
 	case "sh", "bash":

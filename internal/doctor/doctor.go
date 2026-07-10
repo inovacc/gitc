@@ -1,4 +1,8 @@
-package main
+// Package doctor implements `git doctor`: a one-shot styled health check of the
+// gitc install, the resolved git backend, the PATH shim, and the audit DB. The
+// command layer passes in the values it owns (version + resolved paths) via
+// Config so this package stays independent of package main.
+package doctor
 
 import (
 	"context"
@@ -15,6 +19,17 @@ import (
 	"github.com/inovacc/gitc/internal/paths"
 	"github.com/inovacc/gitc/internal/store"
 )
+
+// osWindows is runtime.GOOS's value on Windows.
+const osWindows = "windows"
+
+// Config carries the command-layer values the checks need, so the doctor package
+// does not reach back into package main.
+type Config struct {
+	Version        string // gitc's own version
+	ManagedGitPath string // newest cached managed git, or "" (from main.managedGitPath)
+	AuditDBPath    string // resolved audit DB path (from main.auditDBPath)
+}
 
 // checkStatus is the outcome level of one doctor check.
 type checkStatus int
@@ -59,13 +74,13 @@ type checkResult struct {
 	detail string
 }
 
-// runDoctor health-checks the gitc install and its backend and prints a one-shot
+// Run health-checks the gitc install and its backend and prints a one-shot
 // styled checklist. It exits non-zero if any critical (fail) check does not
 // pass, so it stays usable in CI or a post-install verification step.
-func runDoctor(_ []string) int {
-	results, worst := collectChecks()
+func Run(cfg Config, _ []string) int {
+	results, worst := collectChecks(cfg)
 
-	fmt.Println(dcTitle.Render("◆ gitc doctor "+version) + "\n")
+	fmt.Println(dcTitle.Render("◆ gitc doctor "+cfg.Version) + "\n")
 
 	for _, r := range results {
 		fmt.Printf("%s  %-22s %s\n", r.status.badge(), r.label, r.detail)
@@ -91,7 +106,7 @@ func summaryLine(worst checkStatus) string {
 
 // collectChecks runs every doctor check and returns the results plus the worst
 // status seen.
-func collectChecks() ([]checkResult, checkStatus) {
+func collectChecks(cfg Config) ([]checkResult, checkStatus) {
 	var (
 		results []checkResult
 		worst   = statusOK
@@ -105,13 +120,13 @@ func collectChecks() ([]checkResult, checkStatus) {
 		results = append(results, checkResult{status: s, label: name, detail: detail})
 	}
 
-	report(statusOK, "gitc version", version)
+	report(statusOK, "gitc version", cfg.Version)
 
 	checkShim(report)
-	b, ok := checkBackend(report)
+	b, ok := checkBackend(report, cfg.ManagedGitPath)
 	checkGitRuns(report, b, ok)
 	checkShell(report, b, ok)
-	checkAudit(report)
+	checkAudit(report, cfg.AuditDBPath)
 
 	return results, worst
 }
@@ -161,10 +176,10 @@ func checkShim(report func(checkStatus, string, string)) {
 }
 
 // checkBackend resolves the git backend and reports its path and kind.
-func checkBackend(report func(checkStatus, string, string)) (backend.Backend, bool) {
+func checkBackend(report func(checkStatus, string, string), managedGitPath string) (backend.Backend, bool) {
 	self, _ := os.Executable()
 
-	b, err := backend.Resolve(managedGitPath(), self)
+	b, err := backend.Resolve(managedGitPath, self)
 	if err != nil {
 		report(statusFail, "git backend", err.Error()+"; run `git fetch-git`")
 		return b, false
@@ -236,9 +251,7 @@ func checkShell(report func(checkStatus, string, string), b backend.Backend, ok 
 }
 
 // checkAudit verifies the audit log opens (creating it if needed).
-func checkAudit(report func(checkStatus, string, string)) {
-	path := auditDBPath()
-
+func checkAudit(report func(checkStatus, string, string), path string) {
 	st, err := store.Open(path)
 	if err != nil {
 		report(statusFail, "audit log", err.Error())
