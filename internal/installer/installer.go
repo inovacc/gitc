@@ -43,7 +43,10 @@ func Install(applyPath bool) (Result, error) {
 		return Result{}, fmt.Errorf("resolve own path: %w", err)
 	}
 
-	self, _ = filepath.Abs(self)
+	self, err = filepath.Abs(self)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve absolute self path: %w", err)
+	}
 
 	shimDir := paths.ShimDir()
 	shimGit := paths.ShimGitPath()
