@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/inovacc/gitc/internal/auditcmd"
 	"github.com/inovacc/gitc/internal/backend"
@@ -46,10 +47,11 @@ func main() {
 		os.Exit(runShell(name, os.Args[1:]))
 	}
 
-	// A signal-cancelled context so Ctrl-C aborts in-flight work (notably the
-	// network downloads in `git update` / `git fetch-git`) instead of being
-	// ignored mid-transfer.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// A signal-cancelled context so Ctrl-C (and SIGTERM, e.g. a supervisor/init
+	// stopping a background updater on non-Windows) aborts in-flight work —
+	// notably the network downloads in `git update` / `git fetch-git` — instead
+	// of being ignored mid-transfer. SIGTERM is inert on Windows.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	os.Exit(run(ctx, os.Args[1:]))

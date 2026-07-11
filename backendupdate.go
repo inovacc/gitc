@@ -92,7 +92,10 @@ func spawnDetached(args ...string) error {
 		return err
 	}
 
-	cmd := exec.CommandContext(context.Background(), self, args...) //nolint:gosec // self re-exec, fixed args
+	// No context by design: the detached child must OUTLIVE this process, so
+	// binding it to the parent's context (which would cancel on exit/SIGTERM)
+	// is exactly what we must not do.
+	cmd := exec.Command(self, args...) //nolint:gosec,noctx // detached child outlives the parent; fixed self re-exec args
 
 	cmd.Env = append(os.Environ(), "GITC_BACKGROUND=1")
 	configureDetached(cmd)

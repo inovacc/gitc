@@ -148,7 +148,12 @@ func (r *Runner) execAndAudit(ctx context.Context, args []string, mode, shortcut
 	rec.ExitCode = res.ExitCode
 	rec.Duration = res.Duration
 
-	if blob, eerr := r.enricher.Enrich(ctx, rec.Cwd); eerr == nil {
+	if blob, eerr := r.enricher.Enrich(ctx, rec.Cwd); eerr != nil {
+		// Enrichment is best-effort — a failure never blocks the git command, but
+		// silently dropping it hides a misconfigured enricher. Surface it on the
+		// warn stream (the exec enricher itself degrades to a nil error).
+		fmt.Fprintf(r.warn, "gitc: enrichment skipped: %v\n", eerr)
+	} else {
 		rec.Enrichment = blob
 	}
 
