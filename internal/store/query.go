@@ -30,6 +30,7 @@ type AuditRow struct {
 	Exit        int
 	DurationMS  int64
 	Enrichment  string
+	PolicyPath  string // resolved enforcement policy path in effect ("" = none)
 }
 
 // Command decodes the stored argv JSON into a readable space-joined command.
@@ -57,7 +58,8 @@ func (s *Store) Records(n int) ([]AuditRow, error) {
 
 	const q = `SELECT id, ts, os_user, COALESCE(identity,''), cwd, argv, env_subset,
         backend, backend_path, mode, COALESCE(shortcut,''), exit_code, duration_ms,
-        COALESCE(enrichment,'') FROM audit_log ORDER BY id DESC LIMIT ?`
+        COALESCE(enrichment,''), COALESCE(resolved_policy_path,'')
+        FROM audit_log ORDER BY id DESC LIMIT ?`
 
 	rows, err := s.db.QueryContext(ctx, q, n)
 	if err != nil {
@@ -71,7 +73,8 @@ func (s *Store) Records(n int) ([]AuditRow, error) {
 	for rows.Next() {
 		var r AuditRow
 		if err := rows.Scan(&r.ID, &r.TS, &r.OSUser, &r.Identity, &r.Cwd, &r.Argv, &r.Env,
-			&r.Backend, &r.BackendPath, &r.Mode, &r.Shortcut, &r.Exit, &r.DurationMS, &r.Enrichment); err != nil {
+			&r.Backend, &r.BackendPath, &r.Mode, &r.Shortcut, &r.Exit, &r.DurationMS, &r.Enrichment,
+			&r.PolicyPath); err != nil {
 			return nil, fmt.Errorf("scan audit row: %w", err)
 		}
 
