@@ -18,3 +18,8 @@ dist/
 docs/analysis/
 
 docs/analysis/.harden/
+
+# stray coverage profiles (no extension)
+cover
+coverage
+$cp
