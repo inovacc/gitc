@@ -75,8 +75,14 @@ func resolveManagedGit() string {
 	}
 
 	if rel, relErr := installRel(legacy); relErr == nil {
-		s.Backend.Active = rel
-		_ = settings.Save(sp, s) // best-effort; resolution already succeeded
+		// Adopt the legacy install under the lock, but only if nothing else has
+		// set an active backend in the meantime (best-effort; resolution already
+		// succeeded regardless).
+		_ = settings.Mutate(sp, func(s *settings.Settings) {
+			if s.Backend.Active == "" {
+				s.Backend.Active = rel
+			}
+		})
 	}
 
 	return legacy
@@ -107,27 +113,21 @@ func newInstallBase() (string, error) {
 }
 
 // activate records gitExe's install as the active backend in settings.json
-// (demoting the prior active to previous) and stamps the backend check time, so
-// the next invocation resolves the new install.
+// (demoting the prior active to previous), so the next invocation resolves the
+// new install. The read-modify-write runs under settings.Mutate's advisory lock
+// so it never clobbers a concurrent update (e.g. a background check stamp).
 func activate(gitExe string) {
 	rel, err := installRel(gitExe)
 	if err != nil {
 		return
 	}
 
-	sp := paths.SettingsPath()
-
-	s, err := settings.LoadOrInit(sp)
-	if err != nil {
-		return
-	}
-
-	if s.Backend.Active != rel {
-		s.Backend.Previous = s.Backend.Active
-		s.Backend.Active = rel
-	}
-
-	_ = settings.Save(sp, s)
+	_ = settings.Mutate(paths.SettingsPath(), func(s *settings.Settings) {
+		if s.Backend.Active != rel {
+			s.Backend.Previous = s.Backend.Active
+			s.Backend.Active = rel
+		}
+	})
 }
 
 // ResolveOrProvision resolves the git backend, and on a git-less machine where
@@ -206,17 +206,12 @@ func currentFlavor() string {
 	return s.Backend.Flavor
 }
 
-// persistFlavor records the chosen backend flavor in settings.json.
+// persistFlavor records the chosen backend flavor in settings.json under the
+// advisory lock so it never clobbers a concurrent settings update.
 func persistFlavor(flavor string) {
-	sp := paths.SettingsPath()
-
-	s, err := settings.LoadOrInit(sp)
-	if err != nil || s.Backend.Flavor == flavor {
-		return
-	}
-
-	s.Backend.Flavor = flavor
-	_ = settings.Save(sp, s)
+	_ = settings.Mutate(paths.SettingsPath(), func(s *settings.Settings) {
+		s.Backend.Flavor = flavor
+	})
 }
 
 // pinnedAvailable reports whether the in-code pinned manifest has a git build
