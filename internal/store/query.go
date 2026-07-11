@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,11 +52,14 @@ func (s *Store) Records(n int) ([]AuditRow, error) {
 		n = 200
 	}
 
+	ctx, cancel := opContext()
+	defer cancel()
+
 	const q = `SELECT id, ts, os_user, COALESCE(identity,''), cwd, argv, env_subset,
         backend, backend_path, mode, COALESCE(shortcut,''), exit_code, duration_ms,
         COALESCE(enrichment,'') FROM audit_log ORDER BY id DESC LIMIT ?`
 
-	rows, err := s.db.QueryContext(context.Background(), q, n)
+	rows, err := s.db.QueryContext(ctx, q, n)
 	if err != nil {
 		return nil, fmt.Errorf("query audit rows: %w", err)
 	}
@@ -92,11 +94,14 @@ func (s *Store) Tail(n int, wide bool, w io.Writer) error {
 		n = 20
 	}
 
+	ctx, cancel := opContext()
+	defer cancel()
+
 	const q = `SELECT ts, os_user, mode, COALESCE(shortcut, ''), exit_code, backend, argv,
         COALESCE(enrichment, '')
         FROM audit_log ORDER BY id DESC LIMIT ?`
 
-	rows, err := s.db.QueryContext(context.Background(), q, n)
+	rows, err := s.db.QueryContext(ctx, q, n)
 	if err != nil {
 		return fmt.Errorf("query audit log: %w", err)
 	}
@@ -147,7 +152,10 @@ func (s *Store) Verify() (VerifyResult, error) {
         COALESCE(enrichment,''), COALESCE(prev_hash,''), COALESCE(row_hash,'')
         FROM audit_log ORDER BY id ASC`
 
-	rows, err := s.db.QueryContext(context.Background(), q)
+	ctx, cancel := opContext()
+	defer cancel()
+
+	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
 		return VerifyResult{}, fmt.Errorf("query audit log: %w", err)
 	}
@@ -203,7 +211,10 @@ type RawRow struct {
 
 // RawRows returns every row's id, argv, and env_subset.
 func (s *Store) RawRows() ([]RawRow, error) {
-	rows, err := s.db.QueryContext(context.Background(),
+	ctx, cancel := opContext()
+	defer cancel()
+
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, argv, env_subset FROM audit_log ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query audit rows: %w", err)

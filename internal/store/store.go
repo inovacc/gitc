@@ -163,7 +163,8 @@ func isBusy(err error) bool {
 }
 
 func (s *Store) migrate() error { //nolint:funcorder // grouped with the other setup logic
-	ctx := context.Background()
+	ctx, cancel := opContext()
+	defer cancel()
 
 	if _, err := s.db.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
@@ -216,6 +217,16 @@ func (s *Store) migrate() error { //nolint:funcorder // grouped with the other s
 }
 
 // Insert appends one record to the audit log. It never updates or deletes.
+// opTimeout bounds a single audit DB operation so a wedged database (a stuck
+// lock, a hung fsync) can never hang the git command driving it. Audit is
+// best-effort: a timeout surfaces as an error the caller warns on, not a freeze.
+const opTimeout = 5 * time.Second
+
+// opContext returns a context bounded by opTimeout for one DB operation.
+func opContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), opTimeout)
+}
+
 func (s *Store) Insert(r Record) error {
 	argv, err := json.Marshal(r.Argv)
 	if err != nil {
@@ -247,7 +258,9 @@ func (s *Store) Insert(r Record) error {
 	}
 
 	ts := r.TS.UTC().Format(time.RFC3339Nano)
-	ctx := context.Background()
+
+	ctx, cancel := opContext()
+	defer cancel()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
