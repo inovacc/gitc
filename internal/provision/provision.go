@@ -426,9 +426,9 @@ func activeGitExists(s settings.Settings) bool {
 	return err == nil
 }
 
-// ActiveKeepSet returns the app/<uuid> directory names to retain: the active and
+// activeKeepSet returns the app/<uuid> directory names to retain: the active and
 // previous installs. Legacy (git/<version>) installs contribute no app uuid.
-func ActiveKeepSet(s settings.Settings) map[string]bool {
+func activeKeepSet(s settings.Settings) map[string]bool {
 	keep := map[string]bool{}
 
 	for _, rel := range []string{s.Backend.Active, s.Backend.Previous} {
@@ -438,6 +438,21 @@ func ActiveKeepSet(s settings.Settings) map[string]bool {
 	}
 
 	return keep
+}
+
+// GcInstalls removes superseded app/<uuid> installs, bounding disk usage to the
+// active + previous installs. It reloads settings and sweeps under the settings
+// advisory lock, so a backend activation cannot interleave and have its freshly
+// activated install swept (TOCTOU).
+func GcInstalls() {
+	_ = settings.WithLock(paths.SettingsPath(), func() {
+		s, err := settings.Load(paths.SettingsPath())
+		if err != nil {
+			return
+		}
+
+		gcSweep(activeKeepSet(s))
+	})
 }
 
 // appUUID returns the <uuid> segment of an app-relative install path
@@ -451,9 +466,8 @@ func appUUID(rel string) string {
 	return ""
 }
 
-// GcInstalls removes app/<uuid> install dirs whose uuid is not in keep, bounding
-// disk usage to the active + previous installs.
-func GcInstalls(keep map[string]bool) {
+// gcSweep removes app/<uuid> install dirs whose uuid is not in keep.
+func gcSweep(keep map[string]bool) {
 	entries, err := os.ReadDir(paths.AppDir())
 	if err != nil {
 		return

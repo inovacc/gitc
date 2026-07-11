@@ -56,7 +56,7 @@ func TestActiveKeepSet(t *testing.T) {
 	s.Backend.Active = "app/aaa/v1"
 	s.Backend.Previous = "app/bbb/v0"
 
-	keep := ActiveKeepSet(s)
+	keep := activeKeepSet(s)
 	if len(keep) != 2 || !keep["aaa"] || !keep["bbb"] {
 		t.Errorf("keep set = %v, want {aaa, bbb}", keep)
 	}
@@ -74,7 +74,7 @@ func TestGcInstalls(t *testing.T) {
 		}
 	}
 
-	GcInstalls(map[string]bool{"keep": true})
+	gcSweep(map[string]bool{"keep": true})
 
 	if _, err := os.Stat(filepath.Join(app, "keep")); err != nil {
 		t.Errorf("kept install was removed: %v", err)
@@ -84,5 +84,38 @@ func TestGcInstalls(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(app, gone)); !os.IsNotExist(err) {
 			t.Errorf("install %q should have been GC'd", gone)
 		}
+	}
+}
+
+func TestGcInstallsReloadsActive(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("LOCALAPPDATA", base)
+	t.Setenv("XDG_DATA_HOME", base)
+
+	// Persist the active-install pointer that GcInstalls must re-read under the
+	// lock (rather than trusting a stale keep-set), so it isn't swept.
+	var s settings.Settings
+
+	s.Backend.Active = "app/keepid/v1"
+
+	if err := settings.Save(paths.SettingsPath(), s); err != nil {
+		t.Fatal(err)
+	}
+
+	app := paths.AppDir()
+	for _, id := range []string{"keepid", "dropid"} {
+		if err := os.MkdirAll(filepath.Join(app, id, "v1"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	GcInstalls()
+
+	if _, err := os.Stat(filepath.Join(app, "keepid")); err != nil {
+		t.Errorf("active install was GC'd despite being in settings: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(app, "dropid")); !os.IsNotExist(err) {
+		t.Error("superseded install should have been swept")
 	}
 }

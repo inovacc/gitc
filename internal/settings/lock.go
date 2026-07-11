@@ -54,6 +54,23 @@ func acquireLock(path string) (release func(), err error) {
 	}
 }
 
+// WithLock runs fn while holding the settings advisory lock. Use it for a
+// read-only critical section that must not overlap a Mutate — e.g. a
+// garbage-collection sweep that reads the active/previous install set and must
+// not race a concurrent backend activation.
+func WithLock(path string, fn func()) error {
+	release, err := acquireLock(path)
+	if err != nil {
+		return err
+	}
+
+	defer release()
+
+	fn()
+
+	return nil
+}
+
 // Mutate applies fn to the settings at path under the advisory lock, so
 // concurrent read-modify-write cycles from multiple gitc processes cannot
 // clobber one another. It loads the current settings (starting from Default when

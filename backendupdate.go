@@ -134,7 +134,7 @@ func runBackendUpdate(ctx context.Context) int {
 
 	provision.UpdateBackendIfStale(ctx, sp, &s)
 	recordGitcNotice(ctx)
-	provision.GcInstalls(provision.ActiveKeepSet(s))
+	provision.GcInstalls()
 
 	return 0
 }
