@@ -316,18 +316,58 @@ func prependUserPath(dir string) error {
 	if runtime.GOOS != osWindows {
 		return fmt.Errorf("automatic PATH apply is Windows-only; %s", manualPathInstruction(dir))
 	}
-	// Read the current user PATH, prepend dir if absent, write it back — all
-	// via PowerShell's Environment API to avoid setx's 1024-char truncation.
-	script := fmt.Sprintf(
-		"$d='%s';"+
-			"$p=[Environment]::GetEnvironmentVariable('Path','User');"+
-			"if(-not $p){$p=''};"+
-			"if(($p -split ';') -notcontains $d){"+
-			"[Environment]::SetEnvironmentVariable('Path', $d + ';' + $p, 'User')}",
-		strings.ReplaceAll(dir, "'", "''"))
-	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 
-	out, err := cmd.CombinedOutput()
+	// Read the persistent user PATH, compute the new value in Go (pure, tested),
+	// and write it back only if it changed — all via PowerShell's Environment API
+	// to avoid setx's 1024-char truncation.
+	cur, err := readUserPath()
+	if err != nil {
+		return err
+	}
+
+	next, changed := prependPathValue(cur, dir)
+	if !changed {
+		return nil
+	}
+
+	return writeUserPath(next)
+}
+
+// prependPathValue prepends dir to a ';'-separated PATH string, returning the new
+// value and whether it changed. It is unchanged when dir is already present (any
+// segment matches exactly) and is just dir when userPath is empty.
+func prependPathValue(userPath, dir string) (result string, changed bool) {
+	for _, seg := range strings.Split(userPath, ";") {
+		if seg == dir {
+			return userPath, false
+		}
+	}
+
+	if userPath == "" {
+		return dir, true
+	}
+
+	return dir + ";" + userPath, true
+}
+
+// readUserPath returns the persistent (registry) user PATH, empty when unset.
+func readUserPath() (string, error) {
+	out, err := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive",
+		"-Command", "[Environment]::GetEnvironmentVariable('Path','User')").Output()
+	if err != nil {
+		return "", fmt.Errorf("powershell read user PATH: %w", err)
+	}
+
+	return strings.TrimRight(string(out), "\r\n"), nil
+}
+
+// writeUserPath persists value as the user PATH.
+func writeUserPath(value string) error {
+	script := fmt.Sprintf("[Environment]::SetEnvironmentVariable('Path', '%s', 'User')",
+		strings.ReplaceAll(value, "'", "''"))
+
+	out, err := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive",
+		"-Command", script).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("powershell set user PATH: %w: %s", err, strings.TrimSpace(string(out)))
 	}

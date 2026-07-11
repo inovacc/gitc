@@ -13,6 +13,9 @@ import (
 	"github.com/inovacc/gitc/internal/provision"
 )
 
+// flagPath is the repeatable --path option name.
+const flagPath = "--path"
+
 // scrubFlags holds the parsed `git scrub` options.
 type scrubFlags struct {
 	paths       []string
@@ -122,7 +125,7 @@ func parseScrubFlags(args []string) (scrubFlags, error) {
 		}
 
 		switch a {
-		case "--path":
+		case flagPath:
 			v, err := next()
 			if err != nil {
 				return fl, err
