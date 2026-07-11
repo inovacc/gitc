@@ -51,12 +51,15 @@ func maybeSpawnBackgroundUpdate() {
 
 	defer release()
 
-	// Optimistic stamp: later invocations see "not due" for the interval.
+	// Optimistic stamp: later invocations see "not due" for the interval. The
+	// stamp write runs under the advisory lock so it never clobbers a concurrent
+	// backend activation.
 	stamp := now.Format(time.RFC3339)
-	s.Update.BackendLastCheck = stamp
-	s.Update.GitcLastCheck = stamp
 
-	if err := settings.Save(sp, s); err != nil {
+	if err := settings.Mutate(sp, func(s *settings.Settings) {
+		s.Update.BackendLastCheck = stamp
+		s.Update.GitcLastCheck = stamp
+	}); err != nil {
 		return
 	}
 
