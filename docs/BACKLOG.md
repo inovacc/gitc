@@ -62,10 +62,12 @@ deferred as low value / high churn:
   path is agent-relocatable (SEC-2/H-27). The per-user path still works as a
   fallback and logs a deprecation warning; migrate policies to the machine dir.
   An `ENFORCE` marker in the machine dir makes a missing policy fail closed.
-- **Record the resolved policy path in the audit record (SEC-2 follow-up).**
-  `resolvePolicy` already returns the path it used; persisting it per audit row so
-  a policy relocation is forensically visible needs a store schema migration
-  (new `resolved_policy_path` column) + runner plumbing. Deferred from H-27.
+- **Record the resolved policy path in the audit record (SEC-2) — DONE.**
+  Migration `0003_resolved_policy_path.sql` adds the column; the runner records the
+  resolved enforcement policy path (`SetPolicyPath`, resolved once in main via
+  `loadEnforcementPolicy`) on every audit row, so a policy relocation is
+  forensically visible. Metadata only — not yet folded into the tamper-evident
+  hash chain (that lands with the H-36 HMAC rework; see [SECURITY.md](SECURITY.md)).
 
 - **Configured (pre-set) git alias resolution (SEC-6 residual).** H-30 blocks
   command-line `-c alias.<name>=<gated-verb>` injection. A pre-configured alias

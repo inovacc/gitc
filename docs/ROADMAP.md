@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:006 -->
+<!-- rev:007 -->
 
 gitc's mission: a **non-bypassable, forensically-audited gate for AI coding
 agents** — stop agents leaking secrets/sensitive data through git (see the
@@ -58,7 +58,7 @@ README "Purpose" section).
 
 ## Test coverage
 
-Total **56.9%** (`go test -coverpkg=./... ./...`, merged profile).
+Total **57.6%** (`go test -coverpkg=./... ./...`, merged profile).
 
 | Package | % | | Package | % |
 |---------|---|---|---------|---|
