@@ -48,8 +48,9 @@ type Runner struct {
 	warn     io.Writer
 	gate     GateFunc // nil means unguarded
 
-	osUser   string
-	identity string
+	osUser     string
+	identity   string
+	policyPath string // resolved enforcement policy path, recorded per audit row
 }
 
 // New builds a Runner. A nil store disables auditing (with a stderr warning per
@@ -76,6 +77,11 @@ func New(b backend.Backend, s *store.Store, e enrich.Enricher, warn io.Writer) *
 // and each shortcut step alike. Without it the runner executes unguarded. This
 // is what makes the machine/org policy non-bypassable via built-in shortcuts.
 func (r *Runner) Guard(g GateFunc) { r.gate = g }
+
+// SetPolicyPath records the resolved enforcement policy path (empty when no
+// policy is in effect) so every audited row shows which policy governed it —
+// making a policy relocation forensically visible (SEC-2).
+func (r *Runner) SetPolicyPath(p string) { r.policyPath = p }
 
 // Passthrough forwards args verbatim to the backend and audits the call.
 // It returns the backend exit code.
@@ -219,6 +225,7 @@ func (r *Runner) baseRecord(args []string, mode, shortcutName string) store.Reco
 		BackendPath: r.backend.Path,
 		Mode:        mode,
 		Shortcut:    shortcutName,
+		PolicyPath:  r.policyPath,
 	}
 }
 

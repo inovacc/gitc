@@ -71,6 +71,7 @@ type Record struct {
 	ExitCode    int               // backend exit code
 	Duration    time.Duration     // wall-clock exec duration
 	Enrichment  json.RawMessage   // optional libgit2 blob, nil if unavailable
+	PolicyPath  string            // resolved enforcement policy path in effect ("" = none)
 }
 
 // Store is the append-only audit log backing store.
@@ -284,15 +285,22 @@ func (s *Store) Insert(r Record) error {
 	}
 	rowHash := chainHash(prev, v)
 
+	var policyPath any
+	if r.PolicyPath != "" {
+		policyPath = r.PolicyPath
+	}
+
 	const q = `INSERT INTO audit_log
         (ts, os_user, identity, cwd, argv, env_subset, backend, backend_path,
-         mode, shortcut, exit_code, duration_ms, enrichment, prev_hash, row_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         mode, shortcut, exit_code, duration_ms, enrichment, prev_hash, row_hash,
+         resolved_policy_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	if _, err := tx.ExecContext(ctx, q,
 		ts, r.OSUser, identity, r.Cwd, string(argv), string(env),
 		r.Backend, r.BackendPath, r.Mode, shortcut,
 		r.ExitCode, r.Duration.Milliseconds(), enrichment, prev, rowHash,
+		policyPath,
 	); err != nil {
 		return fmt.Errorf("insert audit row: %w", err)
 	}

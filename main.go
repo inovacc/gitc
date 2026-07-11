@@ -110,6 +110,13 @@ func run(ctx context.Context, args []string) int {
 		return enforceGates(args, b.Path)
 	})
 
+	// Record which enforcement policy governed this process on every audit row
+	// (SEC-2), so a policy relocation is forensically visible. Resolved once —
+	// the machine-dir path is stable for the process.
+	if _, policyPath, _ := loadEnforcementPolicy(); policyPath != "" {
+		r.SetPolicyPath(policyPath)
+	}
+
 	switch dec.Kind {
 	case router.RunShortcut:
 		return r.Shortcut(ctx, dec.Shortcut, dec.Args)
