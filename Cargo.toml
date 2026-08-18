@@ -53,6 +53,9 @@ serde_json = { version = "1", optional = true }
 # RFC 3339 timestamps + now-utc (Go time.Parse(RFC3339)/time.Now) for settings'
 # update throttle. std has no RFC 3339. Go's duration-string format is hand-ported.
 time = { version = "0.3", features = ["formatting", "parsing", "macros"], optional = true }
+# Embedded SQLite for the forensic audit log (Go used modernc.org/sqlite, pure-Go).
+# `bundled` compiles the SQLite C amalgamation. std has no SQL engine.
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 
 [features]
 # Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
@@ -66,7 +69,7 @@ scrub = ["dep:regex", "scan"]
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
 # The ported Go application layer (uuidv7, paths, settings, store, gates, …),
 # ported module-by-module from the go-main Go implementation. Off by default.
-app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time"]
+app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.

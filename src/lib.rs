@@ -77,6 +77,11 @@ pub mod router;
 #[cfg(feature = "app")]
 pub mod selfupdate;
 
+/// The append-only forensic audit DB: migrations + tamper-evident hash chain
+/// (Go `internal/store`).
+#[cfg(feature = "app")]
+pub mod store;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

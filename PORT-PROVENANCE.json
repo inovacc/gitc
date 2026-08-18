@@ -134,6 +134,23 @@
       ],
       "target_files": ["src/selfupdate.rs"], "status": "verified",
       "note": "HTTP injected via a trait; ureq deferred to binary wiring. Network is ask-before-run."
+    },
+    "store": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/store/store.go", "sha1": "18c3788637edbd77e3fa4dd67e514df44736a519" },
+        { "path": "internal/store/query.go", "sha1": "2bd7d4f8b12761374a8bb4780622cff085895851" },
+        { "path": "internal/store/store_test.go", "sha1": "e7f66bcea41488436a9aa2b2ab3841aa9c1a6ecc" },
+        { "path": "internal/store/errpath_test.go", "sha1": "d7b596b062d0dcaa1e8a7cca166c75ab5c25f203" },
+        { "path": "internal/store/policypath_test.go", "sha1": "f2f4228a994a7145fbc8b0e1cb5ade612f54e1a9" },
+        { "path": "internal/store/concurrency_test.go", "sha1": "5efb8f168590514032d11572bd2a3e4bef7982cd" },
+        { "path": "internal/store/migrations/0001_audit.sql", "sha1": "a2b6fca4aae2f83d1b27223cf2d9b0f6387ea41f" },
+        { "path": "internal/store/migrations/0002_audit_chain.sql", "sha1": "addd15f41bf88cf2fac720562b1d0488ffbe7fec" },
+        { "path": "internal/store/migrations/0003_resolved_policy_path.sql", "sha1": "573772ad2289f646881abee647a6b81fbb0418ae" }
+      ],
+      "target_files": ["src/store.rs", "src/store_migrations/0001_audit.sql", "src/store_migrations/0002_audit_chain.sql", "src/store_migrations/0003_resolved_policy_path.sql"],
+      "status": "verified",
+      "note": "Hash-chain preimage reproduced byte-for-byte; rusqlite(bundled) compiles SQLite C (works under host gcc + zig cc cross)."
     }
   }
 }

@@ -122,3 +122,14 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | net/http default client | injected `pub trait HttpClient { fn get(url, accept) -> Result<HttpResponse, HttpError> }`; retry (MAX_ATTEMPTS=3, 300ms×attempt, 4xx terminal) in-module. Prod impl = `ureq` (deferred to binary wiring); tests inject a fake — no real network. |
 | apply ordering | download → **verify (size + sha256, refuse if no checksums)** → swap. Swap runs ONLY after verify Ok (security invariant). |
 | `error` | `pub enum Error` (Origin/NoAsset/Http/QueryReleases/DecodeRelease/SizeMismatch/NoChecksums/FetchChecksums/NotListed/ShaMismatch/Swap); `From<origin::Error>`. |
+
+### `store` (Go `internal/store` → `src/store.rs` + `src/store_migrations/*.sql`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Store`/`Record`/`AuditRow`/`VerifyResult`/`RawRow` | same names; `Record.env_subset: Option<BTreeMap>` (`None`→`null`, sorted keys match Go map JSON); `ts: OffsetDateTime`, `duration: Duration`. |
+| `Open`/`Insert`/`Records`/`Tail`/`Verify`/`RawRows`/`Close` | `store::open(path)`, `Store::insert/records/tail/verify/raw_rows/close` + `Drop`. |
+| tamper-evident `chainHash` | `sha256(prev ‖ 0x1f-joined fields)` hex — field order ts/os_user/identity/cwd/argv/env/backend/backend_path/mode/shortcut/exit/durMs/enrichment; `prev`="" for row 1; NULL columns fold as "" (COALESCE on read). REPRODUCED byte-for-byte. |
+| migrations (0001/0002/0003.sql) | embedded `include_str!`, run in order on open with a `schema_migrations` table (skip-if-applied); SQL byte-identical. |
+| PRAGMAs | `busy_timeout=5000; journal_mode=WAL; synchronous=NORMAL`; every insert = `BEGIN IMMEDIATE` (Go `_txlock=immediate`). |
+| `error` | `pub enum Error { Io, Sqlite, Json, TimeFormat, Closed }`. Dep: `rusqlite` (bundled). |
