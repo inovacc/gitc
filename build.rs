@@ -65,22 +65,34 @@ fn main() {
     let ar = env::var("GITC_AR").unwrap_or_else(|_| DEFAULT_AR.to_string());
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
 
-    assert!(
-        git_dir.join("Makefile").exists(),
-        "no git source at {}. The git source is a SUBMODULE — check it out with:\n    \
-         git submodule update --init --recursive {}",
-        git_dir.display(),
-        VENDORED_GIT_SUBDIR
-    );
+    // The git C source/artifacts may be absent in this environment (the
+    // `vendor/git` submodule is a gitlink that isn't checked out, or git hasn't
+    // been built yet). The pure-Rust LIBRARY does not need them, so — as on the
+    // non-gnu branch — skip the C link with a warning instead of failing the crate.
+    // This lets `cargo zigbuild --lib` / `cargo check` succeed even on the gnu
+    // target; the BINARY still needs the objects and will fail to link without them.
+    if !git_dir.join("Makefile").exists() {
+        println!(
+            "cargo:warning=gitc: no git source at {} (submodule `{}` not checked out) — \
+             skipping the C link step; the library builds. To link the BINARY, check out \
+             the submodule and build git first (README §Build).",
+            git_dir.display(),
+            VENDORED_GIT_SUBDIR
+        );
+        return;
+    }
 
     let git_o = git_dir.join("git.o");
     let libgit_a = git_dir.join("libgit.a");
-    assert!(
-        git_o.exists() && libgit_a.exists(),
-        "git artifacts not found in {}. Build git first (see README §Build): \
-         `make NO_RUST=1 ... git.exe` in the vendored git tree (produces git.o + libgit.a).",
-        git_dir.display()
-    );
+    if !(git_o.exists() && libgit_a.exists()) {
+        println!(
+            "cargo:warning=gitc: git C artifacts (git.o/libgit.a) not built in {} — \
+             skipping the C link step; the library builds. Build git first (README §Build: \
+             `make NO_RUST=1 ... git.exe`) to link the BINARY.",
+            git_dir.display()
+        );
+        return;
+    }
 
     println!("cargo:rerun-if-changed={}", git_o.display());
     println!("cargo:rerun-if-changed={}", libgit_a.display());
