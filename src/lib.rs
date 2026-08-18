@@ -45,6 +45,11 @@ pub mod origin;
 #[cfg(feature = "app")]
 pub mod policy;
 
+/// The gitc installer — currently the embedded Windows launcher shim
+/// (Go `internal/installer/shim`); full shadow-installer lands later.
+#[cfg(feature = "app")]
+pub mod installer;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

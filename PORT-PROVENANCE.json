@@ -69,6 +69,16 @@
       "target_files": ["src/gitargs.rs"],
       "status": "verified",
       "note": "SubcommandIndex only — the rest of gitargs is an independent equivalent port."
+    },
+    "installer/shim": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/installer/shim/embed.go", "sha1": "799980c3babb5b305e833fbbd18910074a166d67" },
+        { "path": "internal/installer/shim/embed_test.go", "sha1": "96fb8fbbcbdfbc9e98eb2476204fa582268bbde7" }
+      ],
+      "target_files": ["src/installer/shim.rs", "src/installer/shim_amd64.exe", "src/installer/shim_arm64.exe"],
+      "status": "verified",
+      "note": "shim_{amd64,arm64}.exe + shim.c are prebuilt assets embedded via include_bytes!; regenerated out-of-band, not built by cargo."
     }
   }
 }
