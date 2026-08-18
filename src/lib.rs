@@ -19,6 +19,11 @@ pub mod gitobj;
 pub mod gitpack;
 pub mod gitwalk;
 
+/// Ported Go application layer (from the go-main Go implementation), behind `app`.
+/// RFC 9562 UUIDv7 generation (Go `internal/uuidv7`).
+#[cfg(feature = "app")]
+pub mod uuidv7;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

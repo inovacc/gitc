@@ -39,6 +39,10 @@ sources = { path = "crates/betterleaks/sources", optional = true }
 # The rule catalogue + its TOML loader — for `--config <file>`, `config check`,
 # `explain <rule>`, and SARIF rule metadata.
 config = { path = "crates/betterleaks/config", optional = true }
+# ── ported Go application layer (behind `app`) ──────────────────────────────
+# OS CSPRNG for UUIDv7 (Go used crypto/rand; Rust std has no CSPRNG). Tiny,
+# ubiquitous, maintained. Justified: std lacks secure randomness.
+getrandom = { version = "0.2", optional = true }
 
 [features]
 # Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
@@ -50,6 +54,9 @@ scrub = ["dep:regex", "scan"]
 # over the git-object readers, using the vendored betterleaks `detect`/`report`
 # crates. Off by default.
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
+# The ported Go application layer (uuidv7, paths, settings, store, gates, …),
+# ported module-by-module from the go-main Go implementation. Off by default.
+app = ["dep:getrandom"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.
