@@ -1,9 +1,0 @@
-# Normalize line endings: store text as LF, check out LF on all platforms.
-# Ends the "LF will be replaced by CRLF" churn on Windows.
-* text=auto eol=lf
-
-# Explicit binaries (never normalized).
-*.exe binary
-*.zip binary
-*.7z binary
-*.db binary
