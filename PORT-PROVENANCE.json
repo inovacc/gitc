@@ -160,6 +160,17 @@
       ],
       "target_files": ["src/doctor.rs"], "status": "verified",
       "note": "lipgloss ANSI styling dropped (text verbatim); git --version timeout dropped (pack rule)."
+    },
+    "gitwin": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/gitwin/gitwin.go", "sha1": "3ba293ea72cc6768762db9f0d7d6bf1a1372407a" },
+        { "path": "internal/gitwin/manifest.go", "sha1": "7a0f0e2a6a2ebba5ca61921421a4c4b0e97333be" },
+        { "path": "internal/gitwin/pinned.go", "sha1": "8d083c6fd95be9da837ef436821a45c477789753" },
+        { "path": "internal/gitwin/tarbz2.go", "sha1": "61a7f72b4dd56e4e70be8ad8b96571e720794282" }
+      ],
+      "target_files": ["src/gitwin.rs"], "status": "verified",
+      "note": "23 tests; reuses selfupdate::HttpClient; zip/tar/bzip2 format crates, traversal guards hand-ported; ureq deferred to binary wiring."
     }
   }
 }

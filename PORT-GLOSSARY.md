@@ -141,3 +141,13 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | `Config` (`Version`,`ManagedGitPath`,`AuditDBPath`) | `pub struct Config { version: String, managed_git_path: Option<PathBuf>, audit_db_path: PathBuf }` (`""`→`None`). |
 | `Run(cfg, args) int` | `pub fn run(cfg: Config, args: &[String]) -> i32`. |
 | `checkStatus` + `exitCodeFor`/`summaryLine`/`badge`/`samePath` | private `enum CheckStatus { Ok, Warn, Fail }` (`Ord`) + fns; badges `[ ok ]`/`[warn]`/`[fail]`, exit Fail→1 else 0. lipgloss color dropped (text verbatim); `same_path` case-insensitive everywhere. |
+
+### `gitwin` (Go `internal/gitwin` → `src/gitwin.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Asset`/`Release`/`Manifest`/`ManifestAsset` | same names (serde). `Manifest::for_`→`Option`, `ensure_pinned`/`ensure`→`Result<PathBuf, Error>`. |
+| net/http | **REUSES `selfupdate::HttpClient`**; own retry consts `MAX_ATTEMPTS=3`/`RETRY_BACKOFF=500ms`; 5xx+transport retry, 4xx terminal. |
+| `filepath.Clean` + zip-slip / tar-traversal guard | hand-ported lexical clean + safe-join (`../` refused, absolute contained); hardlink/symlink dereferenced. |
+| `Unzip`/`ExtractTarBz2` | `zip`/`tar`/`bzip2` crates (format decode only, guards hand-ported). |
+| `error` | `pub enum Error` (Origin/Io/Request/Status/Decode/UnsupportedArch/NoAsset/UnsafePath/OpenZip/ReadTar/Sha256Mismatch/NoSha256/Missing); `From<origin::Error>`/`From<io::Error>`. |

@@ -87,6 +87,11 @@ pub mod store;
 #[cfg(feature = "app")]
 pub mod doctor;
 
+/// Managed-git (MinGit) provisioning: GitHub releases, verified download, zip/
+/// tar.bz2 extraction with traversal guards (Go `internal/gitwin`).
+#[cfg(feature = "app")]
+pub mod gitwin;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

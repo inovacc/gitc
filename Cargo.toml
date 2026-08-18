@@ -56,6 +56,12 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros"], option
 # Embedded SQLite for the forensic audit log (Go used modernc.org/sqlite, pure-Go).
 # `bundled` compiles the SQLite C amalgamation. std has no SQL engine.
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+# Archive decode for managed-git provisioning (Go archive/tar, compress/bzip2, and
+# the zip reader). Format libs — std has none; the traversal/zip-slip guards are
+# hand-ported. Behind `app`.
+zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
+tar = { version = "0.4", optional = true }
+bzip2 = { version = "0.4", optional = true }
 
 [features]
 # Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
@@ -69,7 +75,7 @@ scrub = ["dep:regex", "scan"]
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
 # The ported Go application layer (uuidv7, paths, settings, store, gates, …),
 # ported module-by-module from the go-main Go implementation. Off by default.
-app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite"]
+app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite", "dep:zip", "dep:tar", "dep:bzip2", "scan"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.
