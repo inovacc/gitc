@@ -40,6 +40,11 @@ pub mod shortcut;
 #[cfg(feature = "app")]
 pub mod origin;
 
+/// Machine/org enforcement policy (secret gate + remote allowlist) and gitc's
+/// passthrough defaults like the initial branch (Go `internal/policy`).
+#[cfg(feature = "app")]
+pub mod policy;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

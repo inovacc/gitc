@@ -50,3 +50,24 @@ modules build on. Use their EXACT ported types.
 ## Per-module type identities (append as modules are ported)
 
 _(module → key public types, so dependents use the same names)_
+
+### `policy` (Go `internal/policy` → `src/policy.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Policy` struct (`Version`,`SecretGate`,`RemoteAllow`) | `pub struct Policy { version: i64, secret_gate: SecretGate, remote_allow: RemoteAllowlist }` — `#[serde(default)]` + field renames `secretGate`/`remoteAllowlist`; `Deserialize` only (Go never marshals). |
+| `SecretGate` (`Enabled`,`Commands`,`Mode`) | `pub struct SecretGate { enabled: bool, commands: Vec<String>, mode: String }`; `blocks()` = `mode != "warn"`. |
+| `RemoteAllowlist` (`Enabled`,`Hosts`) | `pub struct RemoteAllowlist { enabled: bool, hosts: Vec<String> }`. |
+| `LoadPolicy(path) (Policy, error)` | `pub fn load_policy(path: &Path) -> Result<Policy, policy::Error>`; missing file → `Ok(Policy::default())`. `Error::{Io, Parse{path,source}}` — `Parse` Display `parse policy <path>: <err>`. |
+| `p.SecretGateApplies(args)` | `Policy::secret_gate_applies(&self, args: &[String]) -> bool` |
+| `p.RemoteRefs(args) ([]string, bool)` | `Policy::remote_refs(&self, args: &[String]) -> (Vec<String>, bool)` — `(refs, uses_default)`; Go `nil` → empty `Vec`. |
+| `p.RemoteAllowed(remote)` | `Policy::remote_allowed(&self, remote: &str) -> bool` |
+| `IsRemoteURL(s)` | `pub fn is_remote_url(s: &str) -> bool` |
+| `InitNeedsBranch(args) (int, bool)` | `pub fn init_needs_branch(args: &[String]) -> Option<usize>` (Go's `ok=false` → `None`). |
+| `InjectInitialBranch(args, idx, branch)` | `pub fn inject_initial_branch(args: &[String], init_idx: usize, branch: &str) -> Vec<String>` |
+
+### `gitargs` addition (dependency gap resolved)
+
+| Go | Rust |
+|---|---|
+| `gitargs.SubcommandIndex(args) int` (`-1` if none) | `crate::gitargs::subcommand_index(argv: &[String]) -> Option<usize>` — scans from `argv[0]` (git args WITHOUT program name), skips leading globals + their values; `--` ends options. Uses a dedicated `SUBCOMMAND_VALUE_GLOBALS` set matching Go `valueGlobals` (NOT the broader `VALUE_OPTS`, which also carries `--attr-source`). |

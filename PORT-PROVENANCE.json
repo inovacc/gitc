@@ -1,0 +1,74 @@
+{
+  "source": "github.com/inovacc/gitc (branch go-main)",
+  "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+  "pair": "go2rust",
+  "hash": "git-blob-sha1",
+  "note": "Hashes are git blob SHA-1 of each source file at source_commit (the sanctioned git-source equivalent to SHA-256 for drift detection).",
+  "modules": {
+    "uuidv7": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/uuidv7/uuidv7.go", "sha1": "d771d73756d5b72af3860db2f434c6f982583e54" },
+        { "path": "internal/uuidv7/uuidv7_test.go", "sha1": "4d52655a04ea08c3ba63df4be290ab8d1086e3e0" }
+      ],
+      "target_files": ["src/uuidv7.rs"],
+      "status": "verified"
+    },
+    "paths": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/paths/paths.go", "sha1": "957de58651893f07a0dbffb190095cb519a80daa" },
+        { "path": "internal/paths/paths_test.go", "sha1": "12634df0dd4fffa738a3cb2b3299fc9d55475a0e" }
+      ],
+      "target_files": ["src/paths.rs"],
+      "status": "verified"
+    },
+    "redact": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/redact/redact.go", "sha1": "e9b79bdcd93b62191bbf63bef9b1470d36208bdb" },
+        { "path": "internal/redact/redact_test.go", "sha1": "eeccaa79ac8841a9d2bf012c7f0ead098d82f8e7" }
+      ],
+      "target_files": ["src/redact.rs"],
+      "status": "verified"
+    },
+    "shortcut": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/shortcut/shortcut.go", "sha1": "d11dd72f17bb6d409faab229bdb207ca1c8c8932" },
+        { "path": "internal/shortcut/shortcut_test.go", "sha1": "7bccceaf8813907662ccc6254925db9a3d3e3813" }
+      ],
+      "target_files": ["src/shortcut.rs"],
+      "status": "verified"
+    },
+    "origin": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/origin/origin.go", "sha1": "e8e758ec5f1be3d823a91a1b6182e3f6e487839c" },
+        { "path": "internal/origin/origin_test.go", "sha1": "267d8e5f4b5cd6dd0bdb9b08ba191fabb74b2715" }
+      ],
+      "target_files": ["src/origin.rs"],
+      "status": "verified"
+    },
+    "policy": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/policy/config.go", "sha1": "23ab9f28933bf7169a2615c71cbe826127e78867" },
+        { "path": "internal/policy/policy.go", "sha1": "a1af452af652bec4ae1819436faccd31adafcfa2" },
+        { "path": "internal/policy/config_test.go", "sha1": "26de266c354bb657c639e284de2513319e0509bf" },
+        { "path": "internal/policy/policy_test.go", "sha1": "d91346cb5753a4f8ab6c04d193abfe5ac7481430" }
+      ],
+      "target_files": ["src/policy.rs"],
+      "status": "verified"
+    },
+    "gitargs:subcommand_index": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/gitargs/gitargs.go", "sha1": "552cbb209f39a6539d2653b2b7ad42ccbf3c59f0" }
+      ],
+      "target_files": ["src/gitargs.rs"],
+      "status": "verified",
+      "note": "SubcommandIndex only — the rest of gitargs is an independent equivalent port."
+    }
+  }
+}

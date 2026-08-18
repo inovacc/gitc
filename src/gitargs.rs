@@ -112,6 +112,58 @@ pub fn parse(argv: &[String]) -> Invocation {
     inv // no subcommand (e.g. bare `git`, `git --version`)
 }
 
+/// Git global options that consume the FOLLOWING argument, so the subcommand
+/// scanner must skip their value too (e.g. `git -C dir init`). This mirrors Go
+/// `gitargs.valueGlobals` exactly — it is intentionally the set the Go
+/// `SubcommandIndex` scanner uses, NOT the broader [`VALUE_OPTS`] above (which
+/// also carries `--attr-source`), so `subcommand_index` stays bug-for-bug with
+/// the Go policy layer that depends on it.
+const SUBCOMMAND_VALUE_GLOBALS: &[&str] = &[
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--super-prefix",
+    "--config-env",
+];
+
+/// Returns the index of the git subcommand token in `argv`, skipping leading
+/// global options and the values of the globals that consume a following
+/// argument. A bare `--` ends options: the token after it (if any) is the
+/// subcommand. Returns `None` when no subcommand is present (empty argv, or only
+/// global flags) — Go's `-1`.
+///
+/// Faithful port of Go `gitargs.SubcommandIndex`. NOTE: unlike [`parse`], this
+/// scans from `argv[0]` (the caller passes the git args WITHOUT the program
+/// name, e.g. `["-c", "x=y", "push"]`), matching the Go signature.
+pub fn subcommand_index(argv: &[String]) -> Option<usize> {
+    let mut i = 0;
+    while i < argv.len() {
+        let a = &argv[i];
+
+        if a == "--" {
+            return if i + 1 < argv.len() {
+                Some(i + 1)
+            } else {
+                None
+            };
+        }
+
+        if a.starts_with('-') {
+            if SUBCOMMAND_VALUE_GLOBALS.contains(&a.as_str()) {
+                i += 1; // also skip this flag's value
+            }
+            i += 1;
+            continue;
+        }
+
+        return Some(i);
+    }
+
+    None
+}
+
 /// Record a `-c name=value` (or bare `-c name`) override, name lowercased.
 fn record_config(inv: &mut Invocation, spec: &str) {
     match spec.split_once('=') {
@@ -190,5 +242,27 @@ mod tests {
         ]));
         assert_eq!(inv.verb(), "push");
         assert!(inv.all_config_keys().any(|k| k == "credential.helper"));
+    }
+
+    #[test]
+    fn subcommand_index_cases() {
+        // (argv, expected index) — mirrors the semantics the policy layer relies on.
+        let cases: &[(&[&str], Option<usize>)] = &[
+            (&["init"], Some(0)),
+            (&["-C", "/tmp/x", "init"], Some(2)),
+            (&["-c", "core.x=1", "init"], Some(2)),
+            (&["--", "init"], Some(1)),
+            (&["--git-dir", "/g", "status"], Some(2)),
+            (&["-c", "x=y", "push"], Some(2)),
+            // only globals / a dangling `--` → no subcommand.
+            (&["-c", "x=y"], None),
+            (&["--"], None),
+            (&[], None),
+        ];
+
+        for (input, want) in cases {
+            let got = subcommand_index(&argv(input));
+            assert_eq!(got, *want, "subcommand_index({input:?})");
+        }
     }
 }
