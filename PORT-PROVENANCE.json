@@ -151,6 +151,15 @@
       "target_files": ["src/store.rs", "src/store_migrations/0001_audit.sql", "src/store_migrations/0002_audit_chain.sql", "src/store_migrations/0003_resolved_policy_path.sql"],
       "status": "verified",
       "note": "Hash-chain preimage reproduced byte-for-byte; rusqlite(bundled) compiles SQLite C (works under host gcc + zig cc cross)."
+    },
+    "doctor": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/doctor/doctor.go", "sha1": "a6bf417c5f997ddca7ac20968273f18cdce8ccae" },
+        { "path": "internal/doctor/doctor_test.go", "sha1": "fbbcc9725c3bcf16f9601d1f33aacae6a3345ea9" }
+      ],
+      "target_files": ["src/doctor.rs"], "status": "verified",
+      "note": "lipgloss ANSI styling dropped (text verbatim); git --version timeout dropped (pack rule)."
     }
   }
 }

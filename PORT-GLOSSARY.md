@@ -133,3 +133,11 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | migrations (0001/0002/0003.sql) | embedded `include_str!`, run in order on open with a `schema_migrations` table (skip-if-applied); SQL byte-identical. |
 | PRAGMAs | `busy_timeout=5000; journal_mode=WAL; synchronous=NORMAL`; every insert = `BEGIN IMMEDIATE` (Go `_txlock=immediate`). |
 | `error` | `pub enum Error { Io, Sqlite, Json, TimeFormat, Closed }`. Dep: `rusqlite` (bundled). |
+
+### `doctor` (Go `internal/doctor` → `src/doctor.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Config` (`Version`,`ManagedGitPath`,`AuditDBPath`) | `pub struct Config { version: String, managed_git_path: Option<PathBuf>, audit_db_path: PathBuf }` (`""`→`None`). |
+| `Run(cfg, args) int` | `pub fn run(cfg: Config, args: &[String]) -> i32`. |
+| `checkStatus` + `exitCodeFor`/`summaryLine`/`badge`/`samePath` | private `enum CheckStatus { Ok, Warn, Fail }` (`Ord`) + fns; badges `[ ok ]`/`[warn]`/`[fail]`, exit Fail→1 else 0. lipgloss color dropped (text verbatim); `same_path` case-insensitive everywhere. |

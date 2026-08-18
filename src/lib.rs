@@ -82,6 +82,11 @@ pub mod selfupdate;
 #[cfg(feature = "app")]
 pub mod store;
 
+/// One-shot health check of the gitc install + backend + shim + audit DB
+/// (Go `internal/doctor`).
+#[cfg(feature = "app")]
+pub mod doctor;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

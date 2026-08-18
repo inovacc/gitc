@@ -35,9 +35,11 @@ gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4
 | `selfupdate` | verified | 8 | — (HttpClient trait; ureq deferred) | PASS (Go baseline green) |
 | `store` | verified | 10 | `rusqlite` (bundled) | PASS (hash-chain byte-exact; Go baseline green) |
 
-**Progress: 14 / 24 port-units verified.** WAVE 0 COMPLETE. Go `go test` used as the
-parity baseline; all app modules (incl. rusqlite's SQLite C) cross-compile under
-`cargo zigbuild --target x86_64-pc-windows-gnu`.
+| `doctor` | verified | 4 | — (std) | PASS (Go baseline green) |
+
+**Progress: 15 / 24 port-units verified.** WAVE 0 COMPLETE; Wave 1 in progress
+(`doctor` done; `gitwin`, `runner` in flight). Go `go test` = parity baseline; all
+app modules cross-compile under `cargo zigbuild --target x86_64-pc-windows-gnu`.
 
 ## Dependencies added
 
