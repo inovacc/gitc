@@ -1,25 +1,8 @@
-/gitc
-/gitc.exe
-*.out
-dist/
-.idea/
-.vscode/
-
-# Ephemeral command-audit scripts
-/.scripts/
-
-# Vendored git build output (produced by `task git:build`)
-/internal/vendor-build/
-# Local audit databases / scratch
-*.db
-*.db-shm
-*.db-wal
-/.tmp/
-docs/analysis/
-
-docs/analysis/.harden/
-
-# stray coverage profiles (no extension)
-cover
-coverage
-$cp
+/target
+Cargo.lock
+desktop.ini
+# git's own build output inside the vendored submodule (objects, archives,
+# binaries). The SOURCE is tracked by the submodule; the artifacts are not.
+vendor/git/**/*.o
+vendor/git/**/*.a
+vendor/git/**/*.exe

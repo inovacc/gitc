@@ -1,0 +1,35 @@
+[package]
+name = "sources"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace-internal ports, not third-party crates.
+#   gitdiff — the ported slice of the go-gitdiff FORK the git source consumes.
+#   scm     — Platform + the git config-isolation environment (Go duplicates the
+#             same five overrides in clone.go and git.go; ported once).
+gitdiff = { path = "../gitdiff" }
+scm = { path = "../scm" }
+logging = { path = "../logging" }
+
+# Archive descent. Compression and container formats are exactly the domain the
+# dependency rubric says to use a library for; hand-rolling a zip or deflate
+# reader would be a bug farm. All three are mature and PURE RUST, so the build
+# needs no C toolchain:
+#   zip    — the container betterleaks findings most often hide in (.jar/.whl too)
+#   tar    — and .tar.gz via the gzip chain
+#   flate2 — with the rust_backend (miniz_oxide) feature, not zlib
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+#   bzip2-rs / lzma-rs / ruzstd / sevenz-rust2 — the remaining formats Gos
+#   mholt/archives covers. All PURE RUST decoders, so the build still needs no
+#   C toolchain; the C-linked bzip2/xz/zstd bindings were avoided for that
+#   reason.
+bzip2-rs = "0.1"
+lzma-rs = "0.3"
+ruzstd = "0.9"
+sevenz-rust2 = { version = "0.21", default-features = false }
+brotli = "8"
+lz4_flex = "0.14"
+rars = "0.6"

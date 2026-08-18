@@ -1,0 +1,12 @@
+[package]
+name = "ahocorasick"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# ZERO dependencies, deliberately. The Go source (internal/ahocorasick/matcher.go)
+# is a bespoke flat-DFA matcher importing only `unicode`/`utf8`; its API is
+# Compile(patterns, foldASCII) + Visit(text, fn) with an EARLY-ABORT contract
+# (`fn` returning false stops traversal mid-scan) that the `aho-corasick` crate
+# does not reproduce. Substituting the crate would be a rewrite, not a port.
+[dependencies]

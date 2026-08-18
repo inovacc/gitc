@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Ephemeral command-audit scripts
+.scripts/
+
+# machine-local target-dir redirect (see .cargo/config.toml)
+.cargo/

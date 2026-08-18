@@ -1,0 +1,36 @@
+[package]
+name = "config"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# JUSTIFIED. The whole job of this crate is reading a 491 KB TOML rule catalogue;
+# Rust std has no TOML. Per the operator's 2026-07-12 policy, serialization
+# formats are a sanctioned dependency category — prefer the crate over
+# hand-rolling the format. `toml` is the de-facto standard and is what the Go
+# side uses too (pelletier/go-toml/v2).
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+
+# The regex FACADE, not the engine directly: Go compiles every rule pattern
+# through its own `regexp` package (lazy compilation + swappable engine), and
+# rules must be compiled the same way for the same laziness and error behaviour.
+regexp = { path = "../regexp" }
+
+# `Rule::validate` parses a component's `within` field with exactly the
+# `--match-context` grammar — that is `contextwindow.Parse` in the source.
+contextwindow = { path = "../contextwindow" }
+
+# `Rule::validate` rejects an unknown confidence level.
+confidence = { path = "../confidence" }
+
+# `validate_min_version` compares against the build's gitleaks-compat level and
+# warns through the same logger the source uses.
+version = { path = "../version" }
+logging = { path = "../logging" }
+
+# NOTE — no `semver` crate. Go uses hashicorp/go-version, which is LAXER than
+# strict semver, so pulling `semver` would reject inputs Go accepts. The
+# comparison needed here is a numeric triple after stripping a leading `v`, so
+# it is hand-rolled (std-first rung 3) and flagged in PORT-TRACK.md.

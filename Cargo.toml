@@ -1,0 +1,56 @@
+[package]
+name = "gitc"
+version = "0.1.0"
+edition = "2021"
+description = "A git toolkit in Rust: pure-Rust readers for git's on-disk formats (objects/packs/index) + a git filter-repo port, plus a drop-in `git` binary that IS git (git's own C compiled in via the C ABI)."
+license = "BSD-3-Clause"
+build = "build.rs"
+
+# The binary links git's own C objects (mingw/gnu ABI), so it MUST be built for
+# the GNU target so the ABI matches the msys2 UCRT64 gcc objects:
+#   cargo build --release --target x86_64-pc-windows-gnu
+# The library is pure Rust and checks/builds on any host.
+
+[lib]
+name = "gitc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gitc"
+path = "src/main.rs"
+
+[dependencies]
+# zlib inflate for reading loose + packed git objects. flate2's default
+# miniz_oxide backend is pure-Rust (no system zlib), so it does not clash with
+# git's own linked libz in the binary.
+flate2 = "1"
+# RE2-lineage regex for the (opt-in) history-scrub engine (`filterrepo`). Behind
+# the `scrub` feature; `regex::bytes` is used throughout (paths/blobs are raw
+# bytes, not guaranteed UTF-8). std has no regex.
+regex = { version = "1", optional = true }
+# The gitleaks detection engine (betterleaks-rs) + its report emitters, vendored
+# under crates/betterleaks/. Behind the `scan` feature. Their own workspace,
+# referenced by relative path — not members of this crate.
+detect = { path = "crates/betterleaks/detect", optional = true }
+report = { path = "crates/betterleaks/report", optional = true }
+# The fragment/attribute model detect scans over — gitc feeds it the path + commit
+# so findings fingerprint and suppress (`.betterleaksignore`/baseline) correctly.
+sources = { path = "crates/betterleaks/sources", optional = true }
+# The rule catalogue + its TOML loader — for `--config <file>`, `config check`,
+# `explain <rule>`, and SARIF rule metadata.
+config = { path = "crates/betterleaks/config", optional = true }
+
+[features]
+# Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
+# `regex` dep, and the `gitc scrub` command surface. Enables `scan` because
+# `scrub secret` finds secrets to redact and verifies they are gone afterward.
+# Off by default.
+scrub = ["dep:regex", "scan"]
+# Compiles the secret scanner (`scan` module + the `gitc scan` command surface)
+# over the git-object readers, using the vendored betterleaks `detect`/`report`
+# crates. Off by default.
+scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
+
+[profile.release]
+# git binaries are large; keep symbols lean.
+strip = true

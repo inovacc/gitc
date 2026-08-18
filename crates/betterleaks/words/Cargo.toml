@@ -1,0 +1,12 @@
+[package]
+name = "words"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# JUSTIFIED (std-first log): Rust std has no gzip/DEFLATE, and the source embeds a
+# gzip-compressed NLTK wordlist (`//go:embed words.txt.gz` + `compress/gzip`).
+# Hand-rolling DEFLATE is out of scope. Alternative considered: `miniz_oxide`
+# (lower-level). Chosen `flate2` (the de-facto Rust gzip crate). Only used to
+# decompress the embedded asset once at load time.
+flate2 = "1.0"

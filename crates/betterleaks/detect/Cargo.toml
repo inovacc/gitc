@@ -1,0 +1,32 @@
+[package]
+name = "detect"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# The real engine is assembled from the ported pieces rather than reimplemented:
+config = { path = "../config" }         # the 414-rule catalogue + Rule
+report = { path = "../report" }         # Finding and its methods
+sources = { path = "../sources" }       # Fragment + attribute keys
+codec = { path = "../codec" }           # the multi-pass decoder
+exprruntime = { path = "../exprruntime" } # filter expression evaluation
+regexp = { path = "../regexp" }         # the lazy regex facade
+ahocorasick = { path = "../ahocorasick" } # the keyword prefilter
+confidence = { path = "../confidence" }
+logging = { path = "../logging" }
+contextwindow = { path = "../contextwindow" }
+# A baseline is a previous JSON report, so it must be READ back as well as written.
+serde_json = "1"
+tiktoken-rs = "0.12"
+flate2 = "1"
+base64 = "0.22"
+rustc-hash = "2"
+
+# NOTE: no `tiktoken`. `filter.tokenRatio` / `failsTokenEfficiency` degrade to
+# 0 / false without a tokenizer, exactly as Go does when tokenizerProvider is
+# nil. Wiring the real BPE tokenizer (detect/assets/cl100k_base.tiktoken.gz) is
+# tracked separately so it cannot masquerade as done.
+
+[dev-dependencies]
+serde_json = "1"

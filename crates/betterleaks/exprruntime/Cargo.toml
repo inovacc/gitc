@@ -1,0 +1,50 @@
+[package]
+name = "exprruntime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# THE EXPRESSION LANGUAGE ITSELF HAS NO EXTERNAL DEPENDENCIES.
+#
+# Go binds `expr-lang/expr`, a general-purpose expression language, and no Rust
+# equivalent exists (`cel-rust` is a DIFFERENT language — and celcompat.go proves
+# CEL is the LEGACY input betterleaks rewrites INTO expr, not the target).
+# Porting the whole language would be enormous and pointless: the filter surface
+# the shipped catalogue actually exercises is 6 functions, one index form, `||`
+# and numeric comparison — derived by parsing ALL 367 filter/prefilter
+# expressions, not sampled. So this is a purpose-built recursive-descent
+# evaluator over exactly that language.
+#
+# The tokenizer (tiktoken) is deliberately NOT a dependency here: Go's
+# `tokenizerProvider` may be nil, in which case `tokenRatio` returns 0 and
+# `failsTokenEfficiency` returns false. The port keeps that injection seam, so
+# BPE tokenization arrives with M13 (which owns tiktokenloader.go) rather than
+# being forced on this module.
+#
+# The crates below arrived with the VALIDATION half, and every one is in a
+# domain the dependency rubric names as library territory rather than
+# hand-rolling territory: hashes, HMAC, base64, and RSA. A validation
+# expression signs real requests to real providers - AWS SigV4, an Azure SAS
+# token, a GCP RS256 JWT - and hand-rolling any of that would be a review
+# defect, not restraint. `sha2` carries the `oid` feature because PKCS#1 v1.5
+# signing must embed the digest algorithm identifier.
+[dependencies]
+logging = { path = "../logging" }
+sigv4 = { path = "../sigv4" }
+regexp = { path = "../regexp" }
+ahocorasick = { path = "../ahocorasick" }
+words = { path = "../words" }
+confidence = { path = "../confidence" }
+sha1 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
+md-5 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+rsa = "0.9"
+
+# Tests only. The decisive test compiles every filter expression in the shipped
+# catalogue, which means loading the catalogue. This is NOT a runtime edge and
+# creates no cycle: `config` holds `Program` as an opaque handle and never
+# depends on this crate.
+[dev-dependencies]
+config = { path = "../config" }

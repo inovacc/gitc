@@ -1,0 +1,11 @@
+[package]
+name = "contextwindow"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# The Go source imports stdlib `regexp` for ONE anchored token pattern
+# (`(?i)^([+-]?)(\d+)([CL]?)$`). That is a fixed 3-field shape, so it is
+# hand-parsed here rather than pulling a regex engine into a leaf crate —
+# std-first rung 3 (small, self-contained, faithful). See `parse_token`.
