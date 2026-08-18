@@ -1,0 +1,22 @@
+# Build configuration for gitc (the git-via-FFI binary).
+#
+# gitc's binary links git's own C objects (git.o / libgit.a), which are mingw/gnu
+# ABI, so it targets `x86_64-pc-windows-gnu`.
+#
+# RECOMMENDED: build with cargo-zigbuild, which supplies a bundled mingw-w64
+# linker via `zig` — so you do NOT need an msys2 gcc for the LINK step:
+#
+#     cargo zigbuild --release --target x86_64-pc-windows-gnu
+#     cargo zigbuild --release --target x86_64-pc-windows-gnu --features scan
+#
+# Install once: `cargo install cargo-zigbuild` and put `zig` on PATH.
+# (git's C objects still need to be produced once, and build.rs still needs an
+# `ar` to merge them — see REQUIREMENTS.md §2.2 / the GITC_AR env var.)
+#
+# Zigbuild sets the gnu-target linker itself, so no `[target.…] linker` is set
+# here. For a plain `cargo build` WITHOUT zig, point the linker at your msys2
+# UCRT64 gcc and use the system CRT by uncommenting:
+#
+#   [target.x86_64-pc-windows-gnu]
+#   linker = "C:/msys64/ucrt64/bin/gcc.exe"
+#   rustflags = ["-Clink-self-contained=no"]

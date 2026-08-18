@@ -1,0 +1,12 @@
+[package]
+name = "logging"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# ZERO dependencies. Go wraps `github.com/rs/zerolog`, but the wrapper is 39 LOC
+# and no test anywhere asserts its output, so `tracing` + a subscriber would be a
+# large ecosystem dependency bought for a leveled stderr writer std can do. The
+# FLUENT API shape (Trace/Debug/.../Err -> Event -> .Str/.Int/.Err/.Msg/.Send) is
+# reproduced faithfully because ~279 downstream call sites depend on it.
+[dependencies]

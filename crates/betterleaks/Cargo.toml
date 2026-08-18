@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["ahocorasick", "codec", "color", "confidence", "config", "contextwindow", "detect", "exprruntime", "gitdiff", "logging", "regexp", "report", "scm", "sigv4", "sources", "version", "words"]

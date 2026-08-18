@@ -1,0 +1,14 @@
+[package]
+name = "gitdiff"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# ZERO dependencies.
+#
+# Go uses `gitleaks/go-gitdiff` — itself a FORK, so no upstream crate is a
+# drop-in anyway, and PORT-PLAN flagged the Rust `patch` crate with a warning
+# for exactly that reason. What the git source actually consumes is a narrow
+# slice: per-file new-name/delete/binary flags, hunk positions, and the ADDED
+# lines. That is a parser, not a library domain, so it is ported directly.
+[dependencies]

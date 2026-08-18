@@ -1,0 +1,21 @@
+[package]
+name = "report"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+color = { path = "../color" }
+# JUSTIFIED (std-first log): Rust std has no JSON. serde + serde_json is the pack's
+# one sanctioned JSON default — the report JSON emitter is `encoding/json` in Go.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# JUSTIFIED (sanctioned format lib): report/junit.go uses `encoding/xml`. Rust std
+# has no XML; serialization-format libraries are an approved dependency category.
+quick-xml = { version = "0.37", features = ["serialize"] }
+# Cross-crate: the SARIF reporter's OrderedRules are `config.Rule` (subset).
+config = { path = "../config" }
+# Cross-crate: Finding.attr falls back to sources attribute keys (subset).
+sources = { path = "../sources" }
+gtmpl = "0.7"
+sprig = "0.3"
+gtmpl_value = "0.5"

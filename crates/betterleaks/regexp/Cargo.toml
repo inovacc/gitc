@@ -1,0 +1,20 @@
+[package]
+name = "regexp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# JUSTIFIED. Rust std has NO regex at all, and the Go facade's whole job is to
+# front a regex engine. `regex` is the RE2-lineage engine that matches Go's
+# semantics: regexp/regexp.go:96 gates EVERY pattern through
+# `syntax.Parse(str, syntax.Perl)` and regexp.go:88 defaults to Go's stdlib
+# engine, so no lookaround/backreference is reachable. Alternative considered:
+# `fancy-regex` (backtracking, supports lookaround) — REJECTED, it would accept
+# patterns Go rejects and diverge on leftmost-first semantics.
+regex = "1"
+# JUSTIFIED. Go's `Compile` records `parsed.MaxCap()` WITHOUT compiling, and
+# `TestCompileIsLazy` asserts `NumSubexp()` is available with zero engine
+# compiles. Counting capture groups therefore needs a parser separate from the
+# compiled engine. regex-syntax is the regex project's own parser crate.
+regex-syntax = "0.8"

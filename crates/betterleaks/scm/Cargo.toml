@@ -1,0 +1,15 @@
+[package]
+name = "scm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# The regex facade, for the one userinfo-redaction pattern.
+regexp = { path = "../regexp" }
+
+# NO git library. Go clones by SHELLING OUT to `git` (`exec.CommandContext`),
+# and the whole auth design depends on that: the token is passed through
+# GIT_CONFIG_* env vars so it never touches the remote URL or the command line.
+# Substituting `git2`/`gix` would be a rewrite with different credential
+# handling, not a port.
