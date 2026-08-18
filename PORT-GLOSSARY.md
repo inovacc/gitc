@@ -183,3 +183,21 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | remote allowlist/rewrite | refuse `-c`/`GIT_CONFIG_*` url.*.insteadOf / remote.*.url overrides + `!shell` alias injection before any git call. |
 | `dedupeFindings` | key `file|rule_id|secret|start_line`, first-wins, order preserved. |
 | `scan.*` | rebuilt on `detect::Detector` (crate::scan has a different, git-object shape); reuses `report::Finding`. |
+
+### `provision` (Go `internal/provision` → `src/provision.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `ManagedGitPath`/`AuditDBPath` | `managed_git_path()->Option<PathBuf>` / `audit_db_path()->PathBuf` (env `GITC_GIT_BACKEND`/`GITC_AUDIT_DB`). |
+| `ResolveOrProvision` | `resolve_or_provision(http, &Path, &mut dyn Write) -> Result<backend::Backend, Error>`; resolve→(NoBackend & pinned & !background)→provision→re-resolve. |
+| `FetchGit`/`UpdateBackendIfStale`/`GcInstalls` | same snake_case; HTTP via `selfupdate::HttpClient`. |
+| gc keep-set | active∪previous app-uuids; sweep under `settings::with_lock` (TOCTOU); never the active. |
+| `Error` | `{Backend,Gitwin,InstallId,NoPinned,AutoProvision}`; `AutoProvision.source` keeps Go `%w`. |
+
+### `auditcmd` (Go `internal/auditcmd` → `src/auditcmd.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Run(args, *store.Store) int` | `pub fn run(args: &[String], store: &Store) -> i32` (nil guard dropped). |
+| `auditModel` + bubbletea `Update`/`View` | `pub(crate) struct AuditModel`; `update(&mut self, Msg)->Option<Cmd>`, `view()`/`detail_view()` — PURE strings, ratatui only in the live loop. |
+| `tea.Msg`/`KeyMsg`/`Cmd`, bubbles textinput, lipgloss | own `Msg`/`Key`/`Cmd`, private `SearchInput`; crossterm→Msg in loop only; lipgloss color dropped, width kept. Deps `ratatui`+`crossterm`. |

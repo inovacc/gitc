@@ -201,6 +201,24 @@
       ],
       "target_files": ["src/gates.rs"], "status": "verified",
       "note": "Security-critical: resolvePolicy fail-closed + remote allowlist/rewrite + dedupe. Scanning rebuilt on detect::Detector. git-query 5s timeout not reproduced (flagged)."
+    },
+    "provision": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/provision/provision.go", "sha1": "116ed8df95d9d1ce6dc37a9db89b7a14b2194af6" },
+        { "path": "internal/provision/provision_test.go", "sha1": "14a36b1925a76766ab090a2d4f9af034cdaa14b3" }
+      ],
+      "target_files": ["src/provision.rs"], "status": "verified"
+    },
+    "auditcmd": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/auditcmd/audit.go", "sha1": "7d0694ba053b6d474bc90088cf90571621f9c143" },
+        { "path": "internal/auditcmd/tui.go", "sha1": "873eef6df9724fdaac6b9763ba743aee6fe05417" },
+        { "path": "internal/auditcmd/tui_test.go", "sha1": "a5a1980937fd602334b3351cc383187f93d40cc3" }
+      ],
+      "target_files": ["src/auditcmd.rs"], "status": "verified",
+      "note": "TUI Model/Update ported pure (testable); ratatui+crossterm only in the live loop; lipgloss styling dropped."
     }
   }
 }

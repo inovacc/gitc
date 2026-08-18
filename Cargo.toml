@@ -62,6 +62,11 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
 tar = { version = "0.4", optional = true }
 bzip2 = { version = "0.4", optional = true }
+# Terminal UI for `gitc audit` (Go used charmbracelet bubbletea/bubbles/lipgloss;
+# no std analog). ratatui+crossterm are the Rust-canonical TUI stack; used ONLY in
+# the live event loop — the tested Model/Update logic is pure. Behind `app`.
+ratatui = { version = "0.28", optional = true }
+crossterm = { version = "0.28", optional = true }
 
 [features]
 # Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
@@ -75,7 +80,7 @@ scrub = ["dep:regex", "scan"]
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
 # The ported Go application layer (uuidv7, paths, settings, store, gates, …),
 # ported module-by-module from the go-main Go implementation. Off by default.
-app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite", "dep:zip", "dep:tar", "dep:bzip2", "scan"]
+app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite", "dep:zip", "dep:tar", "dep:bzip2", "dep:ratatui", "dep:crossterm", "scan"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.

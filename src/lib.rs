@@ -102,6 +102,16 @@ pub mod runner;
 #[cfg(feature = "app")]
 pub mod gates;
 
+/// Managed-git provisioning orchestration: resolve-or-provision, fetch-git,
+/// staleness update, install GC (Go `internal/provision`).
+#[cfg(feature = "app")]
+pub mod provision;
+
+/// The `gitc audit` surface: text render / chain verify / interactive browser
+/// (Go `internal/auditcmd`); the tested Model/Update is pure, ratatui drives the loop.
+#[cfg(feature = "app")]
+pub mod auditcmd;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
