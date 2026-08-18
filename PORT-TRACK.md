@@ -32,9 +32,11 @@ gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4
 | `cmdtree` | verified | 3 | — (serde) | PASS (Go baseline green) |
 | `router` | verified | 24 | — (std) | PASS (Go baseline green) |
 
-**Progress: 12 / 24 port-units verified.** Wave 0 done except `store` (SQLite). Go
-`go test` used as the parity baseline; all app modules cross-compile under
-`cargo zigbuild --target x86_64-pc-windows-gnu`.
+| `selfupdate` | verified | 8 | — (HttpClient trait; ureq deferred) | PASS (Go baseline green) |
+
+**Progress: 13 / 24 port-units verified.** Wave 0 done except `store` (SQLite, in
+flight). Go `go test` used as the parity baseline; all app modules cross-compile
+under `cargo zigbuild --target x86_64-pc-windows-gnu`.
 
 ## Dependencies added
 

@@ -124,6 +124,16 @@
         { "path": "internal/router/router_test.go", "sha1": "86d062edda62627afdeaa0d2911204da33aab459" }
       ],
       "target_files": ["src/router.rs"], "status": "verified"
+    },
+    "selfupdate": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/selfupdate/selfupdate.go", "sha1": "b1e6364166db3b6d361d61bcd2b82cd93af3cf6a" },
+        { "path": "internal/selfupdate/selfupdate_test.go", "sha1": "c20e7226cc4dd13c467e6aa58347f45ec2004161" },
+        { "path": "internal/selfupdate/apply_test.go", "sha1": "f8752cbe2872b05afc0d2d6a132fab33496c656b" }
+      ],
+      "target_files": ["src/selfupdate.rs"], "status": "verified",
+      "note": "HTTP injected via a trait; ureq deferred to binary wiring. Network is ask-before-run."
     }
   }
 }

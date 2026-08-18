@@ -111,3 +111,14 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | `GitcToken = "gitc"` | `pub const GITC_TOKEN: &str = "gitc"`. |
 | `Decision` (by-value `Shortcut`) | `pub struct Decision<'a> { kind, shortcut: Option<&'a Shortcut>, args }` — borrows the shortcut (identity by name); explicit `'a`. |
 | `Classify(args, shortcuts)` | `pub fn classify<'a>(args: &[String], shortcuts: &'a [Shortcut]) -> Decision<'a>`. |
+
+### `selfupdate` (Go `internal/selfupdate` → `src/selfupdate.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Asset`/`Info` | `pub struct Asset { name, url, size: i64, checksums_url }`, `pub struct Info { current, latest, has_update, asset }`. |
+| `AssetName()` | `pub fn asset_name(os, arch) -> String` (macos→darwin, x86_64→amd64, aarch64→arm64). |
+| `Check(ctx, current)` / `Apply(ctx, asset, dest)` | `check(current, http: &dyn HttpClient) -> Result<Option<Info>, Error>`, `apply(asset, dest, http) -> Result<(), Error>`. |
+| net/http default client | injected `pub trait HttpClient { fn get(url, accept) -> Result<HttpResponse, HttpError> }`; retry (MAX_ATTEMPTS=3, 300ms×attempt, 4xx terminal) in-module. Prod impl = `ureq` (deferred to binary wiring); tests inject a fake — no real network. |
+| apply ordering | download → **verify (size + sha256, refuse if no checksums)** → swap. Swap runs ONLY after verify Ok (security invariant). |
+| `error` | `pub enum Error` (Origin/NoAsset/Http/QueryReleases/DecodeRelease/SizeMismatch/NoChecksums/FetchChecksums/NotListed/ShaMismatch/Swap); `From<origin::Error>`. |

@@ -72,6 +72,11 @@ pub mod cmdtree;
 #[cfg(feature = "app")]
 pub mod router;
 
+/// Checksum-gated self-update: GitHub release check + verified binary swap
+/// (Go `internal/selfupdate`). HTTP is injected via a trait (no bundled client).
+#[cfg(feature = "app")]
+pub mod selfupdate;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
