@@ -59,6 +59,19 @@ pub mod enrich;
 #[cfg(feature = "app")]
 pub mod backend;
 
+/// On-disk settings.json: active backend pointer + update throttle, atomic writes
+/// under an advisory lock (Go `internal/settings`).
+#[cfg(feature = "app")]
+pub mod settings;
+
+/// JSON-driven meta command-tree renderer/dispatch (Go `internal/cmdtree`).
+#[cfg(feature = "app")]
+pub mod cmdtree;
+
+/// Classify an argv into passthrough / shortcut / meta (Go `internal/router`).
+#[cfg(feature = "app")]
+pub mod router;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

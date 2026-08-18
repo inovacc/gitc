@@ -98,6 +98,32 @@
       "target_files": ["src/backend.rs"],
       "status": "verified",
       "note": "Documented deviations: Windows os.SameFile inode fallback not reproduced; context.Context dropped (pack rule)."
+    },
+    "settings": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/settings/settings.go", "sha1": "cd954e1c4ddbfb5645a7cabbe44a11af6ef0802a" },
+        { "path": "internal/settings/lock.go", "sha1": "b4790e857b9c86bf83883371cb19edf63e8c1a13" },
+        { "path": "internal/settings/settings_test.go", "sha1": "1d2ca4aa2b91cd47edcae4a77a69fc42d3460b16" },
+        { "path": "internal/settings/lock_test.go", "sha1": "72983b9de2260e3bb70ac90afdee1ca0c518d954" }
+      ],
+      "target_files": ["src/settings.rs"], "status": "verified"
+    },
+    "cmdtree": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/cmdtree/cmdtree.go", "sha1": "434574d9e8014333fbc8acde6bfa1abee6f71f19" },
+        { "path": "internal/cmdtree/cmdtree_test.go", "sha1": "a672e0f29f830e765ec188db99ff3f06a65ed61a" }
+      ],
+      "target_files": ["src/cmdtree.rs"], "status": "verified"
+    },
+    "router": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/router/router.go", "sha1": "28e9b6ee41767bcb9e09a9f8067d1e9390ce1fe9" },
+        { "path": "internal/router/router_test.go", "sha1": "86d062edda62627afdeaa0d2911204da33aab459" }
+      ],
+      "target_files": ["src/router.rs"], "status": "verified"
     }
   }
 }

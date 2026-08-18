@@ -85,3 +85,29 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | Go | Rust |
 |---|---|
 | `gitargs.SubcommandIndex(args) int` (`-1` if none) | `crate::gitargs::subcommand_index(argv: &[String]) -> Option<usize>` — scans from `argv[0]` (git args WITHOUT program name), skips leading globals + their values; `--` ends options. Uses a dedicated `SUBCOMMAND_VALUE_GLOBALS` set matching Go `valueGlobals` (NOT the broader `VALUE_OPTS`, which also carries `--attr-source`). |
+
+### `settings` (Go `internal/settings` → `src/settings.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Settings`/`Backend`/`Update` structs | same names; serde `#[serde(default)]`, renames `backendLastCheck`/`gitcLastCheck`, `omitempty`→`skip_serializing_if="String::is_empty"`; `version: i64`. |
+| `Default/Load/LoadOrInit/Save` | `settings::default()`, `load(&Path)` (missing→`Error::Io`/`NotFound`), `load_or_init`, `save(&Path,&Settings)` atomic temp+rename. |
+| `Update.IntervalDuration/DueSince` | `Update::interval_duration()->Duration`, `Update::due_since(&self,last:&str,now: time::OffsetDateTime)->bool`. |
+| `WithLock/Mutate/acquireLock` | `with_lock`, `mutate`; advisory lockfile via `create_new` + Drop-release (10s stale / 5s timeout / 2ms spin). |
+| `time` (Duration string + RFC3339) | Go duration-string subset hand-ported (`parse_go_duration`/`format_go_duration`); RFC3339 via the `time` crate. |
+
+### `cmdtree` (Go `internal/cmdtree` → `src/cmdtree.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `cmdtree.Run(args) int` | `crate::cmdtree::run(args: &[String]) -> i32` — exit 2 parse-err, 1 unknown-node/json-err, 0 ok. |
+| `cmdNode`/`cmdFlag` (JSON catalog) | module-private `CmdNode`/`CmdFlag` `#[derive(Serialize)]`; `type`→`type_` rename, `Subcommands`→`commands`, `omitempty`→skip. Not exported (Go exports only `Run`). |
+
+### `router` (Go `internal/router` → `src/router.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Kind` (`Passthrough`/`RunShortcut`/`Meta`) | `pub enum Kind { Passthrough, RunShortcut, Meta }` (`Copy`+`PartialEq`). |
+| `GitcToken = "gitc"` | `pub const GITC_TOKEN: &str = "gitc"`. |
+| `Decision` (by-value `Shortcut`) | `pub struct Decision<'a> { kind, shortcut: Option<&'a Shortcut>, args }` — borrows the shortcut (identity by name); explicit `'a`. |
+| `Classify(args, shortcuts)` | `pub fn classify<'a>(args: &[String], shortcuts: &'a [Shortcut]) -> Decision<'a>`. |

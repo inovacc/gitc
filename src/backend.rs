@@ -282,7 +282,7 @@ impl Backend {
 
 /// Extracts the major/minor from `git version X.Y.Z` output. Go `parseGitVersion`.
 fn parse_git_version(s: &str) -> Option<(i64, i64)> {
-    let fields: Vec<&str> = s.trim().split_whitespace().collect();
+    let fields: Vec<&str> = s.split_whitespace().collect();
     if fields.len() < 3 {
         return None;
     }

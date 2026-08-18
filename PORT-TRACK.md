@@ -27,9 +27,14 @@ gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4
 | `gitargs::subcommand_index` | verified | 1 | — | PASS (dependency gap filled for policy/router) |
 | `installer/shim` | verified | 1 | — (assets) | PASS (embedded PE launchers; MZ magic) |
 | `enrich` | verified | 4 | — (std + serde) | PASS (Go baseline green) |
+| `backend` | verified | 5 | — (std) | PASS (Go baseline green) |
+| `settings` | verified | 7 | `time` | PASS (Go baseline green) |
+| `cmdtree` | verified | 3 | — (serde) | PASS (Go baseline green) |
+| `router` | verified | 24 | — (std) | PASS (Go baseline green) |
 
-**Progress: 8 / 24 port-units verified.** In flight: `backend`, `settings` (parallel
-porters). Go toolchain present (`go test` used as the parity baseline).
+**Progress: 12 / 24 port-units verified.** Wave 0 done except `store` (SQLite). Go
+`go test` used as the parity baseline; all app modules cross-compile under
+`cargo zigbuild --target x86_64-pc-windows-gnu`.
 
 ## Dependencies added
 
