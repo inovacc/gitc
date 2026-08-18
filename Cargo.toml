@@ -43,6 +43,9 @@ config = { path = "crates/betterleaks/config", optional = true }
 # OS CSPRNG for UUIDv7 (Go used crypto/rand; Rust std has no CSPRNG). Tiny,
 # ubiquitous, maintained. Justified: std lacks secure randomness.
 getrandom = { version = "0.2", optional = true }
+# SHA-256 for origin URL pin integrity + audit hash-chain (Go crypto/sha256).
+# Justified: crypto is not in std.
+sha2 = { version = "0.10", optional = true }
 
 [features]
 # Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
@@ -56,7 +59,7 @@ scrub = ["dep:regex", "scan"]
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
 # The ported Go application layer (uuidv7, paths, settings, store, gates, …),
 # ported module-by-module from the go-main Go implementation. Off by default.
-app = ["dep:getrandom"]
+app = ["dep:getrandom", "dep:regex", "dep:sha2"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.

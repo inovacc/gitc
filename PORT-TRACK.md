@@ -12,15 +12,28 @@ marked `verified`. Trust this ledger + `git log` over memory.
 
 ## App layer (ported from go-main, behind `--features app`)
 
+Wave 0 (leaves). Wave order: paths→redact→uuidv7→shortcut→origin→enrich→backend→
+policy→settings→store→installer/shim. Then W1 cmdtree/router/doctor/selfupdate/
+gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4 main.
+
 | Module | State | Tests | Deps added | Parity |
 |---|---|---|---|---|
 | `uuidv7` | verified | 2 | `getrandom` | PASS (test-parity; conductor-run) |
+| `paths` | verified | 4 | — (std) | PASS |
+| `redact` | verified | 2 | `regex` | PASS |
+| `shortcut` | verified | 3 | — (std) | PASS |
+| `origin` | verified | 4 | `sha2` | PASS |
+
+**Progress: 5 / 24 port-units verified.**
 
 ## Dependencies added
 
 - `getrandom` 0.2 (feature `app`) — OS CSPRNG for UUIDv7; Go used `crypto/rand`,
-  Rust std has no secure RNG. Alternative considered: platform FFI (BCrypt / urandom)
-  — rejected as error-prone. Logged.
+  Rust std has no secure RNG. Alternative: platform FFI — rejected as error-prone.
+- `regex` 1 (already an optional dep; added to `app`) — Go `regexp` (redact URL/auth
+  masking). std has no regex.
+- `sha2` 0.10 (feature `app`) — Go `crypto/sha256` (origin URL pins; audit hash-chain
+  to come). Crypto is not in std.
 
 ## Deviations / gaps
 

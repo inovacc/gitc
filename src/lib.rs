@@ -24,6 +24,22 @@ pub mod gitwalk;
 #[cfg(feature = "app")]
 pub mod uuidv7;
 
+/// Platform-specific gitc paths — data/config/shim/audit locations (Go `internal/paths`).
+#[cfg(feature = "app")]
+pub mod paths;
+
+/// Mask credentials in argv/strings before audit logging (Go `internal/redact`).
+#[cfg(feature = "app")]
+pub mod redact;
+
+/// Built-in convenience commands as git arg-vector compositions (Go `internal/shortcut`).
+#[cfg(feature = "app")]
+pub mod shortcut;
+
+/// Pinned upstream repo URLs guarded by sha256 (Go `internal/origin`).
+#[cfg(feature = "app")]
+pub mod origin;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
