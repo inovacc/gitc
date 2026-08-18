@@ -92,6 +92,11 @@ pub mod doctor;
 #[cfg(feature = "app")]
 pub mod gitwin;
 
+/// gitc's execution core: passthrough/shortcut exec + enforcement gate + audit
+/// insert + env redaction (Go `internal/runner`).
+#[cfg(feature = "app")]
+pub mod runner;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

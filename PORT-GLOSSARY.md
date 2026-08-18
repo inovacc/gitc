@@ -151,3 +151,23 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | `filepath.Clean` + zip-slip / tar-traversal guard | hand-ported lexical clean + safe-join (`../` refused, absolute contained); hardlink/symlink dereferenced. |
 | `Unzip`/`ExtractTarBz2` | `zip`/`tar`/`bzip2` crates (format decode only, guards hand-ported). |
 | `error` | `pub enum Error` (Origin/Io/Request/Status/Decode/UnsupportedArch/NoAsset/UnsafePath/OpenZip/ReadTar/Sha256Mismatch/NoSha256/Missing); `From<origin::Error>`/`From<io::Error>`. |
+
+### `installer` (Go `internal/installer` → `src/installer/installer.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Result` (ShimDir/ShimGit/BackendPath/PathApplied/Instruction) | `pub struct Result { shim_dir/shim_git/backend_path: PathBuf, path_applied: bool, instruction: String }`. |
+| `Install(applyPath)` / `Uninstall()` | `install(apply_path: bool) -> Result<Result, Error>`, `uninstall() -> Result<String, Error>`. |
+| `prependPathValue` | `prepend_path_value(user_path, dir) -> (String, bool)` — `;`-split exact-segment dedup. |
+| Windows launchers + PATH | shim = embedded PE via `shim::binary`; sh/bash = `fs::hard_link(git.exe)`; `.shim` scoop-format; user PATH via `powershell [Environment]::…EnvironmentVariable`. `#[cfg(not(windows))]` = plain copy. |
+| `error` | `pub enum Error { Io{context,source}, Message(String) }`. Deviation: `os.SameFile` inode → canonical-path identity. |
+
+### `runner` (Go `internal/runner` → `src/runner.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `GateFunc func(ctx,args)(int,bool)` | `pub type GateFunc = Box<dyn Fn(&enrich::Ctx, &[String]) -> (i32, bool)>` — `(code,true)` blocks. |
+| `Runner` (holds `*store.Store`) | `pub struct Runner<'a>` — borrows `Option<&'a Store>`; `gate: Option<GateFunc>`. |
+| `New(b,s,e,warn)` | `Runner::new(backend, Option<&Store>, Option<Box<dyn Enricher>>, Option<Box<dyn Write>>)`; None enricher→noop, None warn→stderr. |
+| `Guard/SetPolicyPath/Passthrough/Shortcut` | same, snake_case; gate invoked FIRST (fail-closed), blocked rows still audited (mode "blocked"); env subset captured (SSH_AUTH_SOCK/PATH/GIT_*) + `redact::string`. |
+| deviations | `os_user` from env, `identity` "" (no std user-DB); infallible `Enricher` (no skip-warning). |

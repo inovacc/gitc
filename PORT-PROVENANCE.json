@@ -171,6 +171,27 @@
       ],
       "target_files": ["src/gitwin.rs"], "status": "verified",
       "note": "23 tests; reuses selfupdate::HttpClient; zip/tar/bzip2 format crates, traversal guards hand-ported; ureq deferred to binary wiring."
+    },
+    "installer": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/installer/installer.go", "sha1": "da6ec3db89996f42ac60eae2d4e2b0b9d1b89175" },
+        { "path": "internal/installer/installer_test.go", "sha1": "1ab585328fc1e461c30f6050d56858e91a5df359" },
+        { "path": "internal/installer/path_test.go", "sha1": "64d54d541d1afbbe9b8b2e89f55869b4dd68f877" }
+      ],
+      "target_files": ["src/installer/installer.rs"], "status": "verified",
+      "note": "os.SameFile inode -> canonical-path identity (stable-std); PATH via powershell."
+    },
+    "runner": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/runner/runner.go", "sha1": "b1d9269c37ad1c47ab1fc58d35a28f59f3d6fe20" },
+        { "path": "internal/runner/runner_test.go", "sha1": "fc33f9256d8aadb0e59c80fc282eef7a04892787" },
+        { "path": "internal/runner/gate_test.go", "sha1": "c82bf72b0fa14458b2d1e7f33707180f5a2dc195" },
+        { "path": "internal/runner/envredact_test.go", "sha1": "8813cdfc5e610af4ff89f9bc4d8cfecd87571b47" }
+      ],
+      "target_files": ["src/runner.rs"], "status": "verified",
+      "note": "Gate invoked first (fail-closed); env-subset redacted; os_user from env, identity empty (no std user-DB)."
     }
   }
 }
