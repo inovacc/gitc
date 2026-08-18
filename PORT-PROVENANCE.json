@@ -79,6 +79,15 @@
       "target_files": ["src/installer/shim.rs", "src/installer/shim_amd64.exe", "src/installer/shim_arm64.exe"],
       "status": "verified",
       "note": "shim_{amd64,arm64}.exe + shim.c are prebuilt assets embedded via include_bytes!; regenerated out-of-band, not built by cargo."
+    },
+    "enrich": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/enrich/enrich.go", "sha1": "d96cfc198a7d6be7e2fb06efe24de7998cbc8a65" },
+        { "path": "internal/enrich/enrich_test.go", "sha1": "7c6a0003f879b429157318c7e299c829ce9b715c" }
+      ],
+      "target_files": ["src/enrich.rs"],
+      "status": "verified"
     }
   }
 }

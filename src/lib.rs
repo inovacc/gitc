@@ -50,6 +50,10 @@ pub mod policy;
 #[cfg(feature = "app")]
 pub mod installer;
 
+/// Audit-record enrichment via `git status --porcelain=v2` (Go `internal/enrich`).
+#[cfg(feature = "app")]
+pub mod enrich;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
