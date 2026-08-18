@@ -39,11 +39,12 @@ gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4
 | `gitwin` | verified | 23 | `zip`,`tar`,`bzip2` | PASS (Go baseline green; zig cc cross-compiles the C) |
 | `installer` | verified | 7 | — (std) | PASS (Go baseline green; Windows shims/PATH) |
 | `runner` | verified | 9 | — (std) | PASS (Go baseline green; gate fail-closed + env redaction) |
+| `gates` | verified | 19 | — (reuses detect via scan) | PASS (Go baseline green; fail-closed enforcement) |
 
-**Progress: 18 / 24 port-units verified.** WAVE 0 COMPLETE; Wave 1 nearly done
-(`doctor`,`gitwin`,`installer`,`runner` done; `gates` in flight). Full app suite =
-153 tests, stable. Go `go test` = parity baseline; all app modules cross-compile
-under `cargo zigbuild --target x86_64-pc-windows-gnu`.
+**Progress: 19 / 24 port-units verified.** WAVE 0 + Wave 1 COMPLETE. In flight:
+`provision`, `auditcmd`. Remaining: `shell`, `backendupdate`, `main` (root
+orchestration). Go `go test` = parity baseline; all app modules cross-compile under
+`cargo zigbuild --target x86_64-pc-windows-gnu`.
 
 ## Dependencies added
 

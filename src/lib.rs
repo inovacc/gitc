@@ -97,6 +97,11 @@ pub mod gitwin;
 #[cfg(feature = "app")]
 pub mod runner;
 
+/// Machine/org enforcement gate: secret gate + remote allowlist, fail-closed
+/// (Go root `gates.go`, package main).
+#[cfg(feature = "app")]
+pub mod gates;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;

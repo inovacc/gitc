@@ -171,3 +171,15 @@ Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not re
 | `New(b,s,e,warn)` | `Runner::new(backend, Option<&Store>, Option<Box<dyn Enricher>>, Option<Box<dyn Write>>)`; None enricher→noop, None warn→stderr. |
 | `Guard/SetPolicyPath/Passthrough/Shortcut` | same, snake_case; gate invoked FIRST (fail-closed), blocked rows still audited (mode "blocked"); env subset captured (SSH_AUTH_SOCK/PATH/GIT_*) + `redact::string`. |
 | deviations | `os_user` from env, `identity` "" (no std user-DB); infallible `Enricher` (no skip-warning). |
+
+### `gates` (Go root `gates.go` → `src/gates.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `enforceGates(args, gitPath) (int, bool)` | `pub fn enforce_gates(args: &[String], git_path: &str) -> (i32, bool)` — only public item; `(code,true)`=refuse. |
+| `resolvePolicy` (fail-closed) | private `resolve_policy(machine, user, marker) -> Result<(Policy,String), Error>`; malformed machine policy or ENFORCE marker → `Err` (blocks). |
+| `gitQuery`/`gitBytes` seams | `thread_local` seams + `git_query`/`git_bytes`; tests install Drop-restore stubs. |
+| `isExecFailure` | `enum GitError { Exit, Failure }`; exec failure → **block_unverifiable** (fail-closed); git rejection falls through. |
+| remote allowlist/rewrite | refuse `-c`/`GIT_CONFIG_*` url.*.insteadOf / remote.*.url overrides + `!shell` alias injection before any git call. |
+| `dedupeFindings` | key `file|rule_id|secret|start_line`, first-wins, order preserved. |
+| `scan.*` | rebuilt on `detect::Detector` (crate::scan has a different, git-object shape); reuses `report::Finding`. |

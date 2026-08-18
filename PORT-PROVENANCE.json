@@ -192,6 +192,15 @@
       ],
       "target_files": ["src/runner.rs"], "status": "verified",
       "note": "Gate invoked first (fail-closed); env-subset redacted; os_user from env, identity empty (no std user-DB)."
+    },
+    "gates": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "gates.go", "sha1": "1b09c039735da34cbdc2218cd6d293e3529d9e7d" },
+        { "path": "gates_test.go", "sha1": "c19258b0b9ce58a41f5e607caae243a189fd1bd1" }
+      ],
+      "target_files": ["src/gates.rs"], "status": "verified",
+      "note": "Security-critical: resolvePolicy fail-closed + remote allowlist/rewrite + dedupe. Scanning rebuilt on detect::Detector. git-query 5s timeout not reproduced (flagged)."
     }
   }
 }
