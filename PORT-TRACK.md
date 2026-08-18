@@ -26,9 +26,10 @@ gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4
 | `policy` | verified | 10 | `serde`, `serde_json` | PASS (Go `go test` baseline + ported tests both green) |
 | `gitargs::subcommand_index` | verified | 1 | — | PASS (dependency gap filled for policy/router) |
 | `installer/shim` | verified | 1 | — (assets) | PASS (embedded PE launchers; MZ magic) |
+| `enrich` | verified | 4 | — (std + serde) | PASS (Go baseline green) |
 
-**Progress: 7 / 24 port-units verified.** Go toolchain present (`go test` used as the
-parity baseline from here on).
+**Progress: 8 / 24 port-units verified.** In flight: `backend`, `settings` (parallel
+porters). Go toolchain present (`go test` used as the parity baseline).
 
 ## Dependencies added
 

@@ -66,6 +66,20 @@ _(module → key public types, so dependents use the same names)_
 | `InitNeedsBranch(args) (int, bool)` | `pub fn init_needs_branch(args: &[String]) -> Option<usize>` (Go's `ok=false` → `None`). |
 | `InjectInitialBranch(args, idx, branch)` | `pub fn inject_initial_branch(args: &[String], init_idx: usize, branch: &str) -> Vec<String>` |
 
+### `backend` (Go `internal/backend` → `src/backend.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Kind` (`KindManaged`/`KindSystem`, string) | `pub enum Kind { Managed, System }`; `as_str()`/`Display` → `"managed"`/`"system"`. |
+| `ErrNoBackend` | `pub enum Error { NoBackend, Exec(std::io::Error) }`; `NoBackend` Display = verbatim Go message. |
+| `Backend` struct (`Kind`,`Path`) | `pub struct Backend { kind: Kind, path: PathBuf }`. |
+| `Result` (`ExitCode`,`Duration`) | `pub struct RunOutput { exit_code: i32, duration: Duration }` (renamed to not shadow `std::Result`). |
+| `Resolve(managedPath, selfPath)` | `pub fn resolve(managed: Option<&Path>, self_path: &Path) -> Result<Backend, Error>`; empty/`None` managed → skip; self-guard skips self. |
+| `b.SupportsInitialBranch(ctx)` | `Backend::supports_initial_branch(&self) -> bool` (ctx dropped). |
+| `b.Run(ctx, args)` | `Backend::run(&self, args: &[String]) -> Result<RunOutput, Error>`; non-zero exit → `Ok`, spawn failure → `Err(Exec)`. |
+
+Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not reproduced (unstable on stable std) — resolved-path + case-insensitive compare covers the self-guard; `context.Context` dropped (pack rule).
+
 ### `gitargs` addition (dependency gap resolved)
 
 | Go | Rust |

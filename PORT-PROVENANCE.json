@@ -88,6 +88,16 @@
       ],
       "target_files": ["src/enrich.rs"],
       "status": "verified"
+    },
+    "backend": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/backend/backend.go", "sha1": "2c377097f238c93465b0d97e3f1b61cb30b24b3a" },
+        { "path": "internal/backend/backend_test.go", "sha1": "cff70b923e34c8e6211added348d676b76c12c8a" }
+      ],
+      "target_files": ["src/backend.rs"],
+      "status": "verified",
+      "note": "Documented deviations: Windows os.SameFile inode fallback not reproduced; context.Context dropped (pack rule)."
     }
   }
 }

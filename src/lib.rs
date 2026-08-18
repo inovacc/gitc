@@ -54,6 +54,11 @@ pub mod installer;
 #[cfg(feature = "app")]
 pub mod enrich;
 
+/// Resolve the real git backend (managed/system) with a self-invocation guard
+/// (Go `internal/backend`).
+#[cfg(feature = "app")]
+pub mod backend;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
