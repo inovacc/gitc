@@ -2,6 +2,7 @@
 name = "sources"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 # Workspace-internal ports, not third-party crates.
@@ -33,3 +34,7 @@ sevenz-rust2 = { version = "0.21", default-features = false }
 brotli = "8"
 lz4_flex = "0.14"
 rars = "0.6"
+
+[dev-dependencies]
+testkeys = { path = "../testkeys" }
+

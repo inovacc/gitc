@@ -29,4 +29,6 @@ rustc-hash = "2"
 # tracked separately so it cannot masquerade as done.
 
 [dev-dependencies]
+testkeys = { path = "../testkeys" }
 serde_json = "1"
+

@@ -266,3 +266,212 @@ mod tests {
         assert!(!is_binary(b"plain text content"));
     }
 }
+
+/// End-to-end staged/push scans over a REAL repo built by git. Skipped (not
+/// failed) when no usable `git` is present — the scan is pure Rust, but the
+/// fixtures (index + loose objects) need git to produce them.
+#[cfg(test)]
+mod e2e {
+    use super::{commit_scan, push_scan, Scan};
+    use crate::gitargs::Invocation;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    fn find_git() -> Option<String> {
+        let mut candidates = Vec::new();
+        if let Ok(g) = std::env::var("GITC_TEST_GIT") {
+            candidates.push(g);
+        }
+        if let Ok(home) = std::env::var("USERPROFILE") {
+            candidates.push(format!("{home}\\scoop\\apps\\git\\current\\cmd\\git.exe"));
+        }
+        candidates.push("git".to_string());
+        candidates.into_iter().find(|g| {
+            Command::new(g)
+                .arg("--version")
+                .output()
+                .is_ok_and(|o| o.status.success())
+        })
+    }
+
+    fn git(bin: &str, dir: &Path, args: &[&str]) -> String {
+        let out = Command::new(bin)
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_AUTHOR_NAME", "T")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "T")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .output()
+            .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn temp_repo_dir() -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("gitc_scan_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// An AWS access-key id assembled from split literals (so the `AKIA…` token
+    /// never appears contiguously in source — avoids push-protection on THIS repo),
+    /// PAIRED with the canonical example secret access key. The `aws-access-token`
+    /// rule declares a REQUIRED `aws-secret-access-key` component within 5 lines, so
+    /// a lone id would not fire — the pair is what a real leak looks like.
+    fn aws_secret_pair() -> String {
+        format!(
+            "aws_access_key_id = \"AKIA{}\"\naws_secret_access_key = \"{}\"\n",
+            "Z3XQ7RTPKMWV4C2D", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        )
+    }
+
+    /// An `Invocation` whose `-C` dir is the repo (absolute → `discover_gitdir`
+    /// starts there without mutating the process cwd).
+    fn inv_at(repo: &Path, rest: &[&str]) -> Invocation {
+        Invocation {
+            c_dirs: vec![repo.to_string_lossy().into_owned()],
+            rest: rest.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn commit_scan_flags_a_staged_secret() {
+        let Some(bin) = find_git() else {
+            eprintln!("skipping commit_scan e2e: no usable git found");
+            return;
+        };
+        let repo = temp_repo_dir();
+        git(&bin, &repo, &["init", "-q", "-b", "main"]);
+
+        std::fs::write(repo.join("secrets.env"), aws_secret_pair()).unwrap();
+        git(&bin, &repo, &["add", "secrets.env"]); // stage → writes .git/index + loose blob
+
+        match commit_scan(&inv_at(&repo, &[])) {
+            Scan::Findings { hits } => {
+                assert!(!hits.is_empty(), "expected >=1 hit");
+                assert!(
+                    hits.iter().any(|h| h.contains("secrets.env")),
+                    "hit names the staged path: {hits:?}"
+                );
+            }
+            Scan::Clean => panic!("staged AWS key must be flagged, got Clean"),
+        }
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn commit_scan_clean_on_benign_content() {
+        let Some(bin) = find_git() else {
+            eprintln!("skipping commit_scan clean e2e: no usable git found");
+            return;
+        };
+        let repo = temp_repo_dir();
+        git(&bin, &repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("readme.txt"), "nothing to see here\n").unwrap();
+        git(&bin, &repo, &["add", "readme.txt"]);
+
+        assert!(
+            matches!(commit_scan(&inv_at(&repo, &[])), Scan::Clean),
+            "benign staged content must scan Clean"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn commit_scan_skips_binary_blob() {
+        let Some(bin) = find_git() else {
+            eprintln!("skipping commit_scan binary e2e: no usable git found");
+            return;
+        };
+        let repo = temp_repo_dir();
+        git(&bin, &repo, &["init", "-q", "-b", "main"]);
+
+        // A NUL in the first 8 KB marks the blob binary → skipped before detection,
+        // so even an embedded secret is not scanned (the `is_binary` continue path).
+        let mut bytes = vec![0u8]; // leading NUL
+        bytes.extend_from_slice(aws_secret_pair().as_bytes());
+        std::fs::write(repo.join("blob.bin"), &bytes).unwrap();
+        git(&bin, &repo, &["add", "blob.bin"]);
+
+        assert!(
+            matches!(commit_scan(&inv_at(&repo, &[])), Scan::Clean),
+            "a binary blob is skipped, not scanned"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn commit_scan_fails_open_outside_a_repo() {
+        // No .git anywhere up the tree → discover_gitdir errors → fail-open Clean.
+        let dir = temp_repo_dir();
+        assert!(
+            matches!(commit_scan(&inv_at(&dir, &[])), Scan::Clean),
+            "scan must fail open (Clean) when not in a repo"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn push_scan_scans_outgoing_and_resolves_remote() {
+        let Some(bin) = find_git() else {
+            eprintln!("skipping push_scan e2e: no usable git found");
+            return;
+        };
+        let repo = temp_repo_dir();
+        git(&bin, &repo, &["init", "-q", "-b", "main"]);
+
+        // c1: benign, and pretend the remote already has it.
+        std::fs::write(repo.join("a.txt"), "alpha\n").unwrap();
+        git(&bin, &repo, &["add", "a.txt"]);
+        git(
+            &bin,
+            &repo,
+            &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "c1"],
+        );
+        let c1 = git(&bin, &repo, &["rev-parse", "HEAD"]);
+        git(&bin, &repo, &["update-ref", "refs/remotes/origin/main", &c1]);
+
+        // c2: introduces the secret in a NEW (outgoing) commit.
+        std::fs::write(repo.join("secrets.env"), aws_secret_pair()).unwrap();
+        git(&bin, &repo, &["add", "secrets.env"]);
+        git(
+            &bin,
+            &repo,
+            &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "c2"],
+        );
+        let c2 = git(&bin, &repo, &["rev-parse", "HEAD"]);
+
+        // The named remote `origin` resolves refs/remotes/origin/main (== c1); the
+        // walk scans only c2's new blobs and flags the secret.
+        match push_scan(&inv_at(&repo, &["origin", "main"])) {
+            Scan::Findings { hits } => assert!(
+                hits.iter().any(|h| h.contains("secrets.env")),
+                "outgoing secret flagged: {hits:?}"
+            ),
+            Scan::Clean => panic!("outgoing AWS key must be flagged"),
+        }
+
+        // Advance the tracking ref to the local tip → nothing is outgoing → Clean.
+        git(&bin, &repo, &["update-ref", "refs/remotes/origin/main", &c2]);
+        assert!(
+            matches!(push_scan(&inv_at(&repo, &["origin", "main"])), Scan::Clean),
+            "with the remote caught up, no new blobs → Clean"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+}

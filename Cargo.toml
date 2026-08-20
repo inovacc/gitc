@@ -1,7 +1,11 @@
 [package]
 name = "gitc"
-version = "0.1.0"
+# Continues the existing tag series (v0.1.0 … v0.5.0), which until now described the
+# Go implementation while this manifest sat at 0.1.0. v0.6.0 is the first version
+# where the tag and the manifest describe the same software: Rust-only.
+version = "0.6.0"
 edition = "2021"
+publish = false
 description = "A git toolkit in Rust: pure-Rust readers for git's on-disk formats (objects/packs/index) + a git filter-repo port, plus a drop-in `git` binary that IS git (git's own C compiled in via the C ABI)."
 license = "BSD-3-Clause"
 build = "build.rs"
@@ -80,8 +84,14 @@ scrub = ["dep:regex", "scan"]
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
 # The ported Go application layer (uuidv7, paths, settings, store, gates, …),
 # ported module-by-module from the go-main Go implementation. Off by default.
-app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite", "dep:zip", "dep:tar", "dep:bzip2", "dep:ratatui", "dep:crossterm", "scan"]
+app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite", "dep:zip", "dep:tar", "dep:bzip2", "dep:ratatui", "dep:crossterm", "scan", "scrub"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.
 strip = true
+
+[dev-dependencies]
+# Credential-shaped strings for tests, built at runtime so no literal provider
+# token is ever committed (the repo is public; see the crate's own docs).
+testkeys = { path = "crates/betterleaks/testkeys" }
+

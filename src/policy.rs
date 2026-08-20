@@ -36,6 +36,64 @@ pub struct Policy {
     /// The remote allowlist (Go `remoteAllowlist`).
     #[serde(rename = "remoteAllowlist")]
     pub remote_allow: RemoteAllowlist,
+    /// External pre/post stage commands run around git core. Rust-only addition
+    /// (no Go analog) — see [`Stages`].
+    pub stages: Stages,
+}
+
+/// External commands run around git core, from the MACHINE policy only.
+///
+/// ## Why this lives in `policy.json` and not in user settings
+///
+/// A pre stage can refuse a git command and a post stage runs on every single git
+/// invocation — so "which program runs here" is a privilege decision, not a
+/// preference. `policy.json` is resolved from the admin-owned machine directory
+/// (`%ProgramData%` / `/etc`), which the user-writable settings file and the
+/// environment are not. Sourcing stage commands from a user-writable file would
+/// hand any local process a persistence hook that executes on every `git` call.
+/// There is deliberately **no environment-variable override** for the same reason.
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(default)]
+pub struct Stages {
+    /// Commands run BEFORE git core. A non-zero exit blocks git (see [`StageCmd`]).
+    pub pre: Vec<StageCmd>,
+    /// Commands run AFTER git core. Advisory — the exit code is ignored.
+    pub post: Vec<StageCmd>,
+}
+
+/// One external stage command.
+///
+/// `run` is the program path plus its fixed arguments; the git argv is NOT appended
+/// (a stage that wants it reads `GITC_STAGE_ARGV`), so a stage cannot be turned into
+/// an argument-injection vector by a crafted git command line.
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(default)]
+pub struct StageCmd {
+    /// A short label used in diagnostics.
+    pub name: String,
+    /// Program path followed by fixed arguments. Empty entries are ignored.
+    pub run: Vec<String>,
+    /// Per-command timeout in milliseconds; 0 means [`STAGE_DEFAULT_TIMEOUT_MS`].
+    ///
+    /// A stage that hangs would hang every git invocation on the machine, so the
+    /// timeout is not optional — it only selects the value.
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: u64,
+}
+
+/// Timeout applied to a [`StageCmd`] that does not set its own.
+pub const STAGE_DEFAULT_TIMEOUT_MS: u64 = 5_000;
+
+impl StageCmd {
+    /// The effective timeout, substituting the default for 0.
+    pub fn timeout(&self) -> std::time::Duration {
+        let ms = if self.timeout_ms == 0 {
+            STAGE_DEFAULT_TIMEOUT_MS
+        } else {
+            self.timeout_ms
+        };
+        std::time::Duration::from_millis(ms)
+    }
 }
 
 /// Blocks a gated git command when a working-tree secret scan finds anything.

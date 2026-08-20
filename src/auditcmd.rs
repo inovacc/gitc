@@ -784,4 +784,303 @@ mod tests {
         let blocked = mk_row(0, "", "", "blocked", "", 0);
         assert!(blocked.blocked(), "a blocked-mode row must report Blocked");
     }
+
+    /// A fully-populated row so `detail_view` exercises every `detail_field` branch
+    /// (including the `duration_ms > 0` conditional and the trailing env/enrichment).
+    fn full_row() -> AuditRow {
+        AuditRow {
+            id: 9,
+            ts: "2026-07-10T06:00:00Z".to_string(),
+            os_user: "dev".to_string(),
+            identity: "dev@host".to_string(),
+            cwd: "/home/dev/proj".to_string(),
+            argv: r#"["commit","-m","hello"]"#.to_string(),
+            env: "GIT_DIR=/x".to_string(),
+            backend: "git".to_string(),
+            backend_path: "/usr/bin/git".to_string(),
+            mode: "passthrough".to_string(),
+            shortcut: "cm".to_string(),
+            exit: 0,
+            duration_ms: 42,
+            enrichment: "note".to_string(),
+            policy_path: String::new(),
+        }
+    }
+
+    /// Many synthetic rows to drive scrolling / windowing.
+    fn many_rows(n: i64) -> Vec<AuditRow> {
+        (0..n)
+            .map(|i| {
+                mk_row(
+                    i,
+                    &format!("2026-07-10T06:{:02}:00Z", i % 60),
+                    "dev",
+                    "passthrough",
+                    &format!("[\"cmd{i}\"]"),
+                    0,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_view_loading_before_size() {
+        // No WindowSize yet → width 0 → the placeholder frame, no panes.
+        let m = AuditModel::new(audit_rows());
+        assert_eq!(m.view(), "loading audit log…");
+    }
+
+    #[test]
+    fn test_empty_rows_render_and_navigation() {
+        let mut m = AuditModel::new(Vec::new());
+        m.update(Msg::WindowSize {
+            width: 100,
+            height: 20,
+        });
+
+        // Detail pane says so; footer position is 0.
+        assert_eq!(m.detail_view(), "no matching records");
+        assert_eq!(m.pos(), 0);
+
+        let view = m.view();
+        assert!(view.contains("no matching records"));
+        assert!(view.contains("0/0"), "footer shows 0/0 for an empty log: {view}");
+
+        // Navigation on an empty set is a no-op and must not panic / index oob.
+        m.update(Msg::Key(Key::Down));
+        m.update(Msg::Key(Key::Up));
+        m.update(Msg::Key(Key::End));
+        m.update(Msg::Key(Key::Home));
+        assert_eq!(m.cursor, 0);
+        // list_lines over an empty window is empty.
+        assert!(m.list_lines().is_empty());
+    }
+
+    #[test]
+    fn test_detail_view_all_fields() {
+        let mut m = AuditModel::new(vec![full_row()]);
+        m.update(Msg::WindowSize {
+            width: 120,
+            height: 24,
+        });
+        let d = m.detail_view();
+        // Header line: status + command.
+        assert!(d.starts_with("ok  commit -m hello"), "detail header: {d:?}");
+        for (label, val) in [
+            ("time", "06:00:00"),
+            ("user", "dev dev@host"),
+            ("cwd", "/home/dev/proj"),
+            ("backend", "git /usr/bin/git"),
+            ("mode", "passthrough cm"),
+            ("exit", "0"),
+            ("duration", "42 ms"),
+            ("env", "GIT_DIR=/x"),
+            ("enrichment", "note"),
+        ] {
+            assert!(d.contains(label), "detail missing label {label}: {d}");
+            assert!(d.contains(val), "detail missing value {val}: {d}");
+        }
+    }
+
+    #[test]
+    fn test_detail_field_skips_blank() {
+        // A blank value contributes no line (the `field` closure guard).
+        let mut b = String::new();
+        detail_field(&mut b, "cwd", "   ", 40);
+        assert!(b.is_empty(), "blank field must not render: {b:?}");
+        detail_field(&mut b, "cwd", "/x", 40);
+        // `{:<10} {}` — a 10-wide label, a space, then the (trimmed) value.
+        assert_eq!(b, format!("{:<10} {}\n", "cwd", "/x"));
+        assert!(b.starts_with("cwd") && b.ends_with("/x\n"));
+    }
+
+    #[test]
+    fn test_key_navigation_moves_cursor() {
+        let mut m = AuditModel::new(audit_rows());
+        m.update(Msg::WindowSize {
+            width: 120,
+            height: 24,
+        });
+        assert_eq!(m.cursor, 0);
+
+        // Down / j advance; Up / k retreat; clamped at the ends.
+        m.update(Msg::Key(Key::Down));
+        assert_eq!(m.cursor, 1);
+        m.update(Msg::Key(Key::Char('j')));
+        assert_eq!(m.cursor, 2);
+        m.update(Msg::Key(Key::Down)); // clamp at last
+        assert_eq!(m.cursor, 2);
+        m.update(Msg::Key(Key::Up));
+        assert_eq!(m.cursor, 1);
+        m.update(Msg::Key(Key::Char('k')));
+        assert_eq!(m.cursor, 0);
+        m.update(Msg::Key(Key::Up)); // clamp at first
+        assert_eq!(m.cursor, 0);
+
+        // End / G jump to last; Home / g to first.
+        m.update(Msg::Key(Key::End));
+        assert_eq!(m.cursor, 2);
+        m.update(Msg::Key(Key::Home));
+        assert_eq!(m.cursor, 0);
+        m.update(Msg::Key(Key::Char('G')));
+        assert_eq!(m.cursor, 2);
+        m.update(Msg::Key(Key::Char('g')));
+        assert_eq!(m.cursor, 0);
+    }
+
+    #[test]
+    fn test_quit_keys() {
+        let mut m = AuditModel::new(audit_rows());
+        assert_eq!(m.update(Msg::Key(Key::Char('q'))), Some(Cmd::Quit));
+        assert_eq!(m.update(Msg::Key(Key::CtrlC)), Some(Cmd::Quit));
+        assert_eq!(m.update(Msg::Key(Key::Esc)), Some(Cmd::Quit));
+        // An unmapped key is ignored (no cmd, no state change).
+        assert_eq!(m.update(Msg::Key(Key::Enter)), None);
+    }
+
+    #[test]
+    fn test_search_flow_via_keys() {
+        let mut m = AuditModel::new(audit_rows());
+        m.update(Msg::WindowSize {
+            width: 120,
+            height: 24,
+        });
+
+        // Enter search mode; the footer becomes the text-input view.
+        m.update(Msg::Key(Key::Char('/')));
+        assert!(m.searching);
+        assert!(m.view().contains("filter command"), "placeholder in footer");
+
+        // Type "commit" one char at a time; the filter narrows live.
+        for c in "commit".chars() {
+            m.update(Msg::Key(Key::Char(c)));
+        }
+        assert_eq!(m.search.value(), "commit");
+        assert_eq!(m.visible.len(), 1, "live filter matches one row");
+        assert!(m.view().contains("/ commit"), "footer echoes the query");
+
+        // Backspace re-widens the set.
+        m.update(Msg::Key(Key::Backspace));
+        assert_eq!(m.search.value(), "commi");
+
+        // Enter confirms: leaves search mode but keeps the filter/value.
+        m.update(Msg::Key(Key::Enter));
+        assert!(!m.searching);
+        assert_eq!(m.search.value(), "commi");
+
+        // Re-enter and Esc: cancels, clearing the query and restoring all rows.
+        m.update(Msg::Key(Key::Char('/')));
+        m.update(Msg::Key(Key::Char('x')));
+        m.update(Msg::Key(Key::Esc));
+        assert!(!m.searching);
+        assert_eq!(m.search.value(), "");
+        assert_eq!(m.visible.len(), 3, "esc restores every row");
+    }
+
+    #[test]
+    fn test_search_ignored_keys_in_search_mode() {
+        // Non-text keys while searching are swallowed (the `_ => {}` arm).
+        let mut m = AuditModel::new(audit_rows());
+        m.update(Msg::Key(Key::Char('/')));
+        assert_eq!(m.update(Msg::Key(Key::Down)), None);
+        assert_eq!(m.update(Msg::Key(Key::Home)), None);
+        assert!(m.searching, "arrow keys don't leave search mode");
+    }
+
+    #[test]
+    fn test_filtered_to_zero() {
+        let mut m = AuditModel::new(audit_rows());
+        m.update(Msg::WindowSize {
+            width: 120,
+            height: 24,
+        });
+        m.search.set_value("no-such-command-xyz");
+        m.apply_filter();
+        assert!(m.visible.is_empty());
+        assert_eq!(m.detail_view(), "no matching records");
+        assert_eq!(m.pos(), 0);
+        let view = m.view();
+        assert!(view.contains("no matching records"));
+        // A zero-match render must still be bounded.
+        assert!(view.matches('\n').count() + 1 <= 24);
+    }
+
+    #[test]
+    fn test_scroll_past_a_screen() {
+        let mut m = AuditModel::new(many_rows(30));
+        m.update(Msg::WindowSize {
+            width: 120,
+            height: 10,
+        });
+        let bh = m.body_height();
+        assert_eq!(bh, 7, "body height = max(h-3,3)");
+
+        // At the top, the window starts at 0.
+        assert_eq!(m.window(), (0, 7));
+        assert_eq!(m.list_lines().len(), 7);
+
+        // Jump to the end: the window scrolls to keep the cursor on screen.
+        m.update(Msg::Key(Key::End));
+        assert_eq!(m.cursor, 29);
+        let (start, end) = m.window();
+        assert_eq!((start, end), (23, 30));
+        let lines = m.list_lines();
+        assert_eq!(lines.len(), 7);
+        // The cursor row is marked and on-screen; earlier rows scrolled off.
+        assert!(lines.last().unwrap().starts_with('▸'));
+        assert!(lines[0].contains("cmd23"));
+
+        // The full frame never exceeds the terminal box.
+        let view = m.view();
+        assert!(view.matches('\n').count() + 1 <= 10);
+        for ln in view.split('\n') {
+            assert!(display_width(ln) <= 120, "line too wide: {ln:?}");
+        }
+    }
+
+    #[test]
+    fn test_short_ts_branches() {
+        // RFC3339 → the HH:MM:SS slice after the `T`.
+        assert_eq!(short_ts("2026-07-10T06:07:08Z"), "06:07:08");
+        // No `T`, longer than 8 → the leading 8 bytes.
+        assert_eq!(short_ts("2026-07-10 06:07:08"), "2026-07-");
+        // Short string → returned verbatim.
+        assert_eq!(short_ts("06:07"), "06:07");
+        // `T` present but too short a tail → falls through to the len>8 branch.
+        assert_eq!(short_ts("2026-07-10T"), "2026-07-");
+    }
+
+    #[test]
+    fn test_trunc_and_width_helpers() {
+        assert_eq!(trunc("hello", 10), "hello", "short strings unchanged");
+        assert_eq!(trunc("hello world", 5), "hell…", "long strings ellipsised");
+        assert_eq!(trunc("x", 0), "x", "n<1 clamps to 1");
+        assert_eq!(trunc("ab", 1), "…", "n==1 keeps only the ellipsis");
+        assert_eq!(display_width("héllo"), 5);
+        assert_eq!(pad_right("ab", 5), "ab   ", "pads to width");
+        assert_eq!(pad_right("abcdef", 3), "abcdef", "never truncates when longer");
+    }
+
+    #[test]
+    fn test_status_text_exit_code_branch() {
+        // A non-blocked, non-zero-exit row renders its padded exit code.
+        let r = mk_row(0, "", "", "passthrough", r#"["x"]"#, 7);
+        assert_eq!(status_text(&r), "exit=7 ");
+    }
+
+    #[test]
+    fn test_search_input_unit() {
+        let mut s = SearchInput::new();
+        assert_eq!(s.view(), "/ filter command / user / mode…");
+        s.focus();
+        s.insert('a');
+        s.insert('b');
+        assert_eq!(s.value(), "ab");
+        assert_eq!(s.view(), "/ ab");
+        s.backspace();
+        assert_eq!(s.value(), "a");
+        s.set_value("");
+        s.blur();
+        assert_eq!(s.view(), "/ filter command / user / mode…");
+    }
 }

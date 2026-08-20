@@ -107,14 +107,63 @@ pub mod gates;
 #[cfg(feature = "app")]
 pub mod provision;
 
+/// Pre/post stages around git core: the seam that lets the enforcement gate run
+/// before git's dispatcher and the audit writer run after it — including on git's
+/// `die()`/`exit()` paths, via `atexit`. Rust-only (no Go analog: the Go build
+/// proxied an external git, so it had a natural seam this FFI binary lacks).
+///
+/// The core (traits, registry, trampoline) compiles without `app`; the built-in
+/// gate/audit/exec stages need the app layer.
+pub mod stage;
+
+/// Per-repository advisory ledger at `.git/gitc/state.json`: gate verdicts, secret
+/// leak fingerprints, and detected vulnerabilities. **Advisory only** — `.git/` is
+/// repo-writable, so no gate may read it; the authoritative trail is
+/// [`store`]. Never stores a secret value.
+#[cfg(feature = "app")]
+pub mod repostate;
+
 /// The `gitc audit` surface: text render / chain verify / interactive browser
 /// (Go `internal/auditcmd`); the tested Model/Update is pure, ratatui drives the loop.
 #[cfg(feature = "app")]
 pub mod auditcmd;
 
+/// The `sh`/`bash` launcher: when gitc is invoked under those names (via a shim),
+/// it launches the managed backend's own POSIX shell (Go root `shell.go`).
+#[cfg(feature = "app")]
+pub mod shell;
+
+/// Throttled, single-flight background-update machinery + the detached
+/// `backend-update` worker and `.old`-backup sweep (Go root `backendupdate.go`).
+#[cfg(feature = "app")]
+pub mod backendupdate;
+
+/// gitc's root orchestration: classify → audit-open → meta-dispatch or resolve
+/// backend and run the gated, audited passthrough/shortcut (Go root `main.go`).
+#[cfg(feature = "app")]
+pub mod appmain;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
+
+/// One process-global lock for tests that mutate path-resolution environment
+/// variables (`LOCALAPPDATA` / `XDG_DATA_HOME` / …). Rust runs tests concurrently
+/// with no Go-`t.Setenv`-style guard, so every such test across modules must
+/// serialize on THIS single lock — a per-module lock still lets the
+/// installer/provision/paths/backendupdate tests race on the same variable and
+/// intermittently resolve a path into another test's temp dir.
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::sync::{Mutex, MutexGuard};
+
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    /// Acquire the shared env lock, tolerating poisoning left by a panicked test.
+    pub(crate) fn guard() -> MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
 
 /// Secret scanner over a repo's git objects (the gitleaks/betterleaks `detect`
 /// engine + the readers above). Behind the `scan` feature.

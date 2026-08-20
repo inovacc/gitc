@@ -1,0 +1,10 @@
+[package]
+name = "testkeys"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Test-only credential-shaped strings, constructed at runtime so no literal token is ever committed."
+
+# Deliberately dependency-free: this crate is a dev-dependency of most of the
+# workspace, so anything it pulls in would be built for every test run.
+[dependencies]

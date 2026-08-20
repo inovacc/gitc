@@ -476,12 +476,12 @@ mod tests {
     use super::*;
     use std::ffi::OsString;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::MutexGuard;
 
     // Install/uninstall read process-global env (LOCALAPPDATA / XDG_DATA_HOME) via
-    // `crate::paths`; serialize the env-mutating tests and restore afterward. Go's
-    // `t.Setenv` provides this isolation automatically.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    // `crate::paths`; serialize the env-mutating tests on the crate-shared lock and
+    // restore afterward (Go's `t.Setenv` provides this automatically). paths/
+    // provision/backendupdate mutate the same vars, so the lock must be shared.
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     struct EnvGuard {
@@ -491,7 +491,7 @@ mod tests {
 
     impl EnvGuard {
         fn set(pairs: &[(&'static str, &Path)]) -> Self {
-            let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let lock = crate::test_env::guard();
             let saved = pairs
                 .iter()
                 .map(|(k, _)| (*k, std::env::var_os(k)))

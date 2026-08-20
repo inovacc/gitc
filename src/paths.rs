@@ -169,10 +169,10 @@ pub fn managed_git_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    // These tests mutate process-global env; serialize + restore around them.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    // These tests mutate process-global env; serialize + restore around them on
+    // the crate-shared lock — installer/provision/backendupdate mutate the same
+    // LOCALAPPDATA/XDG_DATA_HOME, so a per-module lock would let them race.
 
     struct EnvGuard {
         saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn managed_git_path_empty_when_no_cache() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = crate::test_env::guard();
         let a = std::env::temp_dir().join(format!("gitc_paths_a_{}", std::process::id()));
         let b = std::env::temp_dir().join(format!("gitc_paths_b_{}", std::process::id()));
         std::fs::create_dir_all(&a).unwrap();
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn managed_git_path_finds_cached_install() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        let _lock = crate::test_env::guard();
         let base = std::env::temp_dir().join(format!("gitc_paths_c_{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let _g = EnvGuard::set(&[("LOCALAPPDATA", &base), ("XDG_DATA_HOME", &base)]);

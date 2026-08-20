@@ -681,13 +681,12 @@ mod tests {
     use super::*;
     use crate::settings;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // These tests mutate process-global env (LOCALAPPDATA/XDG_DATA_HOME, read by
     // paths::app_dir) and the on-disk settings under those roots; serialize +
-    // restore around them (Go isolated via t.Setenv + t.TempDir).
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    // restore around them on the crate-shared lock (Go isolated via t.Setenv +
+    // t.TempDir). installer/paths/backendupdate mutate the same vars.
 
     struct EnvGuard {
         saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
@@ -790,7 +789,7 @@ mod tests {
     // TestGcInstalls — gc_sweep keeps the keep-set, removes the rest.
     #[test]
     fn gc_sweep_removes_superseded() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _lock = crate::test_env::guard();
         let base = temp_dir();
         let _g = EnvGuard::set(&[("LOCALAPPDATA", &base), ("XDG_DATA_HOME", &base)]);
 
@@ -822,7 +821,7 @@ mod tests {
     // settings under the lock, so the active install is never swept.
     #[test]
     fn gc_installs_reloads_active() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _lock = crate::test_env::guard();
         let base = temp_dir();
         let _g = EnvGuard::set(&[("LOCALAPPDATA", &base), ("XDG_DATA_HOME", &base)]);
 

@@ -1,6 +1,9 @@
 /target
 **/*.rs.bk
-Cargo.lock
+# NOTE: Cargo.lock is deliberately NOT ignored — these crates are linked into the
+# gitc binary, so their resolution is part of a reproducible tagged build. Leaving
+# it ignored let this workspace's lock drift from the root's (serde 1.0.228 vs
+# 1.0.229 and 14 other shared crates) while both fed the same artifact.
 
 # Ephemeral command-audit scripts
 .scripts/

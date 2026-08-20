@@ -44,10 +44,19 @@ gitwin/installer/runner/auditcmd/gates, W2 provision, W3 shell/backendupdate, W4
 | `provision` | verified | 6 | — (std) | PASS (Go baseline green) |
 | `auditcmd` | verified | 3 | `ratatui`,`crossterm` | PASS (Go baseline green; pure Model/Update) |
 
-**Progress: 21 / 24 port-units verified.** Waves 0–2 COMPLETE. Remaining: `shell`,
-`backendupdate`, `main` (root orchestration). Full app suite = 189 tests. Go
-`go test` = parity baseline; all app modules cross-compile under
-`cargo zigbuild --target x86_64-pc-windows-gnu`.
+**Progress: 24 / 24 port-units verified. THE PORT IS COMPLETE.** Waves 0–4 COMPLETE —
+the final three (`shell`, `backendupdate`, `main` → `src/appmain.rs`) landed and the
+Go implementation has been REMOVED from this branch.
+
+Full Rust suite = **331 tests** (`cargo test --features app --lib`). All app modules
+cross-compile under `cargo zigbuild --target x86_64-pc-windows-gnu`.
+
+**The parity baseline is gone from this tree.** `go test` was the reference for every
+row above; the Go source now exists only on the `go-main` branch (`5685cad`), where all
+97 files were verified byte-identical before deletion. Re-running a parity check means
+checking that branch out — it is no longer a `cargo test` away. One consequence is
+already recorded: `crates/betterleaks/BUGS.md` BUG-001 (335 secrets the Go original
+finds and this port does not) was measured against that baseline and is still OPEN.
 
 ## Dependencies added
 

@@ -268,6 +268,33 @@ fn load_enforcement_policy() -> Result<(Policy, String), Error> {
     )
 }
 
+/// The resolved enforcement-policy path (empty when no policy governs this
+/// machine), for recording on every audit row so a policy relocation is
+/// forensically visible (SEC-2). Mirrors Go `main.go`'s use of
+/// `loadEnforcementPolicy()`'s third (path) return; a load error yields "" (the
+/// gate itself fails closed independently on the next command).
+/// The external pre/post stage commands the machine policy names, or empty when no
+/// policy is in effect or it fails to load.
+///
+/// [`crate::stage`] reads these ONCE, before git core runs, so no stage has to
+/// touch the filesystem during process teardown. A load failure yields no commands
+/// here on purpose: refusing the command is [`enforce_gates`]'s job, and it reports
+/// the same error — duplicating the refusal here would double the diagnostic.
+pub(crate) fn policy_stage_commands() -> (Vec<crate::policy::StageCmd>, Vec<crate::policy::StageCmd>)
+{
+    match load_enforcement_policy() {
+        Ok((pol, _path)) => (pol.stages.pre, pol.stages.post),
+        Err(_) => (Vec::new(), Vec::new()),
+    }
+}
+
+/// The resolved enforcement policy path, or `""`.
+pub fn enforcement_policy_path() -> String {
+    load_enforcement_policy()
+        .map(|(_, path)| path)
+        .unwrap_or_default()
+}
+
 /// The path-injected core of [`load_enforcement_policy`] (testable without the
 /// real machine dirs). Order: machine policy, then the deprecated per-user
 /// policy. If neither exists and the ENFORCE marker is present, it fails CLOSED.

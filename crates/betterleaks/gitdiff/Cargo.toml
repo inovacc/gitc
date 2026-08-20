@@ -12,3 +12,7 @@ publish = false
 # slice: per-file new-name/delete/binary flags, hunk positions, and the ADDED
 # lines. That is a parser, not a library domain, so it is ported directly.
 [dependencies]
+
+[dev-dependencies]
+testkeys = { path = "../testkeys" }
+
