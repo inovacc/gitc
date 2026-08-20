@@ -19,9 +19,151 @@ pub mod gitobj;
 pub mod gitpack;
 pub mod gitwalk;
 
+/// Ported Go application layer (from the go-main Go implementation), behind `app`.
+/// RFC 9562 UUIDv7 generation (Go `internal/uuidv7`).
+#[cfg(feature = "app")]
+pub mod uuidv7;
+
+/// Platform-specific gitc paths — data/config/shim/audit locations (Go `internal/paths`).
+#[cfg(feature = "app")]
+pub mod paths;
+
+/// Mask credentials in argv/strings before audit logging (Go `internal/redact`).
+#[cfg(feature = "app")]
+pub mod redact;
+
+/// Built-in convenience commands as git arg-vector compositions (Go `internal/shortcut`).
+#[cfg(feature = "app")]
+pub mod shortcut;
+
+/// Pinned upstream repo URLs guarded by sha256 (Go `internal/origin`).
+#[cfg(feature = "app")]
+pub mod origin;
+
+/// Machine/org enforcement policy (secret gate + remote allowlist) and gitc's
+/// passthrough defaults like the initial branch (Go `internal/policy`).
+#[cfg(feature = "app")]
+pub mod policy;
+
+/// The gitc installer — currently the embedded Windows launcher shim
+/// (Go `internal/installer/shim`); full shadow-installer lands later.
+#[cfg(feature = "app")]
+pub mod installer;
+
+/// Audit-record enrichment via `git status --porcelain=v2` (Go `internal/enrich`).
+#[cfg(feature = "app")]
+pub mod enrich;
+
+/// Resolve the real git backend (managed/system) with a self-invocation guard
+/// (Go `internal/backend`).
+#[cfg(feature = "app")]
+pub mod backend;
+
+/// On-disk settings.json: active backend pointer + update throttle, atomic writes
+/// under an advisory lock (Go `internal/settings`).
+#[cfg(feature = "app")]
+pub mod settings;
+
+/// JSON-driven meta command-tree renderer/dispatch (Go `internal/cmdtree`).
+#[cfg(feature = "app")]
+pub mod cmdtree;
+
+/// Classify an argv into passthrough / shortcut / meta (Go `internal/router`).
+#[cfg(feature = "app")]
+pub mod router;
+
+/// Checksum-gated self-update: GitHub release check + verified binary swap
+/// (Go `internal/selfupdate`). HTTP is injected via a trait (no bundled client).
+#[cfg(feature = "app")]
+pub mod selfupdate;
+
+/// The append-only forensic audit DB: migrations + tamper-evident hash chain
+/// (Go `internal/store`).
+#[cfg(feature = "app")]
+pub mod store;
+
+/// One-shot health check of the gitc install + backend + shim + audit DB
+/// (Go `internal/doctor`).
+#[cfg(feature = "app")]
+pub mod doctor;
+
+/// Managed-git (MinGit) provisioning: GitHub releases, verified download, zip/
+/// tar.bz2 extraction with traversal guards (Go `internal/gitwin`).
+#[cfg(feature = "app")]
+pub mod gitwin;
+
+/// gitc's execution core: passthrough/shortcut exec + enforcement gate + audit
+/// insert + env redaction (Go `internal/runner`).
+#[cfg(feature = "app")]
+pub mod runner;
+
+/// Machine/org enforcement gate: secret gate + remote allowlist, fail-closed
+/// (Go root `gates.go`, package main).
+#[cfg(feature = "app")]
+pub mod gates;
+
+/// Managed-git provisioning orchestration: resolve-or-provision, fetch-git,
+/// staleness update, install GC (Go `internal/provision`).
+#[cfg(feature = "app")]
+pub mod provision;
+
+/// Pre/post stages around git core: the seam that lets the enforcement gate run
+/// before git's dispatcher and the audit writer run after it — including on git's
+/// `die()`/`exit()` paths, via `atexit`. Rust-only (no Go analog: the Go build
+/// proxied an external git, so it had a natural seam this FFI binary lacks).
+///
+/// The core (traits, registry, trampoline) compiles without `app`; the built-in
+/// gate/audit/exec stages need the app layer.
+pub mod stage;
+
+/// Per-repository advisory ledger at `.git/gitc/state.json`: gate verdicts, secret
+/// leak fingerprints, and detected vulnerabilities. **Advisory only** — `.git/` is
+/// repo-writable, so no gate may read it; the authoritative trail is
+/// [`store`]. Never stores a secret value.
+#[cfg(feature = "app")]
+pub mod repostate;
+
+/// The `gitc audit` surface: text render / chain verify / interactive browser
+/// (Go `internal/auditcmd`); the tested Model/Update is pure, ratatui drives the loop.
+#[cfg(feature = "app")]
+pub mod auditcmd;
+
+/// The `sh`/`bash` launcher: when gitc is invoked under those names (via a shim),
+/// it launches the managed backend's own POSIX shell (Go root `shell.go`).
+#[cfg(feature = "app")]
+pub mod shell;
+
+/// Throttled, single-flight background-update machinery + the detached
+/// `backend-update` worker and `.old`-backup sweep (Go root `backendupdate.go`).
+#[cfg(feature = "app")]
+pub mod backendupdate;
+
+/// gitc's root orchestration: classify → audit-open → meta-dispatch or resolve
+/// backend and run the gated, audited passthrough/shortcut (Go root `main.go`).
+#[cfg(feature = "app")]
+pub mod appmain;
+
 /// Adversarial / fuzz coverage over the untrusted-input git parsers (goal §50).
 #[cfg(test)]
 mod fuzz_tests;
+
+/// One process-global lock for tests that mutate path-resolution environment
+/// variables (`LOCALAPPDATA` / `XDG_DATA_HOME` / …). Rust runs tests concurrently
+/// with no Go-`t.Setenv`-style guard, so every such test across modules must
+/// serialize on THIS single lock — a per-module lock still lets the
+/// installer/provision/paths/backendupdate tests race on the same variable and
+/// intermittently resolve a path into another test's temp dir.
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::sync::{Mutex, MutexGuard};
+
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    /// Acquire the shared env lock, tolerating poisoning left by a panicked test.
+    pub(crate) fn guard() -> MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
 
 /// Secret scanner over a repo's git objects (the gitleaks/betterleaks `detect`
 /// engine + the readers above). Behind the `scan` feature.

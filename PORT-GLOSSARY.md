@@ -1,0 +1,203 @@
+# PORT-GLOSSARY — Go → Rust (gitc)
+
+Shared type-name map + naming/error-style decisions every module porter reads and
+appends. Keeps modules ported in independent contexts coherent (same idioms, same
+cross-module types). Source: the Go implementation on `go-main` (`5685cad`).
+Target: this Rust project.
+
+## Cross-language conventions (apply everywhere)
+
+| Concern | Decision |
+|---|---|
+| Go `error` | `Result<T, E>` with a per-module error enum; propagate with `?`. Public errors implement `std::error::Error` + `Display`. No `thiserror` unless a module's error set is large enough to justify (log it). |
+| Go `(T, error)` | `Result<T, E>`; non-error multi-return → a tuple or a named struct. |
+| Go `nil` / nil-able pointer | `Option<T>` / `Option<Box<T>>`. Never a sentinel. |
+| Go zero value | `Default::default()` or `Option::None` — never assume implicit zeroing. |
+| Go `defer` | RAII (`Drop`) or a scope guard; LIFO order preserved. |
+| goroutine + channel | `std::thread` + `std::sync::mpsc` (crossbeam only if `select`-heavy, logged). |
+| `context.Context` | explicit params; cancellation via an `Arc<AtomicBool>` / token, not a Tokio facsimile. |
+| package-global mutable state | `OnceLock` / passed state — no `static mut`. |
+| naming | Go `Capitalized`→`pub`; Go `MixedCaps`→Rust `snake_case` fns, `CamelCase` types; acronyms lowercased in snake_case (`OID`→`oid`). |
+| Go `init()` | `OnceLock` or an explicit init call — no implicit module init. |
+
+## Sanctioned dependencies (std-first; add only when forced, log here)
+
+| Capability | Crate | Why std can't |
+|---|---|---|
+| _(to be filled per the PORT-PLAN — candidates below)_ | | |
+| SQLite audit store (internal/store) | `rusqlite` (candidate) | std has no SQL engine |
+| JSON config/records | `serde` + `serde_json` (candidate) | std has no JSON |
+| UUIDv7 (internal/uuidv7) | hand-port preferred (small, self-contained) | — |
+| HTTP download (gitwin/backend/selfupdate) | `ureq` or `reqwest` (candidate) | std has no HTTP client |
+| tar/bz2 extraction (gitwin) | crate (candidate) | std has no bz2 |
+
+## Already-present Rust modules (independent equivalent ports — reuse, don't re-port)
+
+These were ported from the upstream sources (git-filter-repo, gitleaks) rather than
+from this Go tree, but are behaviorally equivalent and are the dependency other
+modules build on. Use their EXACT ported types.
+
+| Rust module | Role | Go peer (equivalent) |
+|---|---|---|
+| `src/filterrepo/**` | history-rewrite pipeline | `internal/filterrepo` |
+| `src/gitargs.rs` | git argv parsing | `internal/gitargs` |
+| `src/scan.rs` | secret scan over objects | `internal/scan` |
+| `src/scancmd.rs` | `gitc scan` surface | `internal/scancmd` |
+| `src/scrubcmd.rs` | `gitc scrub` surface | `internal/scrubcmd` |
+| `crates/betterleaks/**` | detection engine (gitleaks port) | (embedded gitleaks) |
+| `src/git{index,obj,pack,walk}.rs` | pure-Rust git object readers | (Rust-only; no Go peer) |
+
+## Per-module type identities (append as modules are ported)
+
+_(module → key public types, so dependents use the same names)_
+
+### `policy` (Go `internal/policy` → `src/policy.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Policy` struct (`Version`,`SecretGate`,`RemoteAllow`) | `pub struct Policy { version: i64, secret_gate: SecretGate, remote_allow: RemoteAllowlist }` — `#[serde(default)]` + field renames `secretGate`/`remoteAllowlist`; `Deserialize` only (Go never marshals). |
+| `SecretGate` (`Enabled`,`Commands`,`Mode`) | `pub struct SecretGate { enabled: bool, commands: Vec<String>, mode: String }`; `blocks()` = `mode != "warn"`. |
+| `RemoteAllowlist` (`Enabled`,`Hosts`) | `pub struct RemoteAllowlist { enabled: bool, hosts: Vec<String> }`. |
+| `LoadPolicy(path) (Policy, error)` | `pub fn load_policy(path: &Path) -> Result<Policy, policy::Error>`; missing file → `Ok(Policy::default())`. `Error::{Io, Parse{path,source}}` — `Parse` Display `parse policy <path>: <err>`. |
+| `p.SecretGateApplies(args)` | `Policy::secret_gate_applies(&self, args: &[String]) -> bool` |
+| `p.RemoteRefs(args) ([]string, bool)` | `Policy::remote_refs(&self, args: &[String]) -> (Vec<String>, bool)` — `(refs, uses_default)`; Go `nil` → empty `Vec`. |
+| `p.RemoteAllowed(remote)` | `Policy::remote_allowed(&self, remote: &str) -> bool` |
+| `IsRemoteURL(s)` | `pub fn is_remote_url(s: &str) -> bool` |
+| `InitNeedsBranch(args) (int, bool)` | `pub fn init_needs_branch(args: &[String]) -> Option<usize>` (Go's `ok=false` → `None`). |
+| `InjectInitialBranch(args, idx, branch)` | `pub fn inject_initial_branch(args: &[String], init_idx: usize, branch: &str) -> Vec<String>` |
+
+### `backend` (Go `internal/backend` → `src/backend.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Kind` (`KindManaged`/`KindSystem`, string) | `pub enum Kind { Managed, System }`; `as_str()`/`Display` → `"managed"`/`"system"`. |
+| `ErrNoBackend` | `pub enum Error { NoBackend, Exec(std::io::Error) }`; `NoBackend` Display = verbatim Go message. |
+| `Backend` struct (`Kind`,`Path`) | `pub struct Backend { kind: Kind, path: PathBuf }`. |
+| `Result` (`ExitCode`,`Duration`) | `pub struct RunOutput { exit_code: i32, duration: Duration }` (renamed to not shadow `std::Result`). |
+| `Resolve(managedPath, selfPath)` | `pub fn resolve(managed: Option<&Path>, self_path: &Path) -> Result<Backend, Error>`; empty/`None` managed → skip; self-guard skips self. |
+| `b.SupportsInitialBranch(ctx)` | `Backend::supports_initial_branch(&self) -> bool` (ctx dropped). |
+| `b.Run(ctx, args)` | `Backend::run(&self, args: &[String]) -> Result<RunOutput, Error>`; non-zero exit → `Ok`, spawn failure → `Err(Exec)`. |
+
+Deviations (documented, acceptable): Windows `os.SameFile` inode fallback not reproduced (unstable on stable std) — resolved-path + case-insensitive compare covers the self-guard; `context.Context` dropped (pack rule).
+
+### `gitargs` addition (dependency gap resolved)
+
+| Go | Rust |
+|---|---|
+| `gitargs.SubcommandIndex(args) int` (`-1` if none) | `crate::gitargs::subcommand_index(argv: &[String]) -> Option<usize>` — scans from `argv[0]` (git args WITHOUT program name), skips leading globals + their values; `--` ends options. Uses a dedicated `SUBCOMMAND_VALUE_GLOBALS` set matching Go `valueGlobals` (NOT the broader `VALUE_OPTS`, which also carries `--attr-source`). |
+
+### `settings` (Go `internal/settings` → `src/settings.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Settings`/`Backend`/`Update` structs | same names; serde `#[serde(default)]`, renames `backendLastCheck`/`gitcLastCheck`, `omitempty`→`skip_serializing_if="String::is_empty"`; `version: i64`. |
+| `Default/Load/LoadOrInit/Save` | `settings::default()`, `load(&Path)` (missing→`Error::Io`/`NotFound`), `load_or_init`, `save(&Path,&Settings)` atomic temp+rename. |
+| `Update.IntervalDuration/DueSince` | `Update::interval_duration()->Duration`, `Update::due_since(&self,last:&str,now: time::OffsetDateTime)->bool`. |
+| `WithLock/Mutate/acquireLock` | `with_lock`, `mutate`; advisory lockfile via `create_new` + Drop-release (10s stale / 5s timeout / 2ms spin). |
+| `time` (Duration string + RFC3339) | Go duration-string subset hand-ported (`parse_go_duration`/`format_go_duration`); RFC3339 via the `time` crate. |
+
+### `cmdtree` (Go `internal/cmdtree` → `src/cmdtree.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `cmdtree.Run(args) int` | `crate::cmdtree::run(args: &[String]) -> i32` — exit 2 parse-err, 1 unknown-node/json-err, 0 ok. |
+| `cmdNode`/`cmdFlag` (JSON catalog) | module-private `CmdNode`/`CmdFlag` `#[derive(Serialize)]`; `type`→`type_` rename, `Subcommands`→`commands`, `omitempty`→skip. Not exported (Go exports only `Run`). |
+
+### `router` (Go `internal/router` → `src/router.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Kind` (`Passthrough`/`RunShortcut`/`Meta`) | `pub enum Kind { Passthrough, RunShortcut, Meta }` (`Copy`+`PartialEq`). |
+| `GitcToken = "gitc"` | `pub const GITC_TOKEN: &str = "gitc"`. |
+| `Decision` (by-value `Shortcut`) | `pub struct Decision<'a> { kind, shortcut: Option<&'a Shortcut>, args }` — borrows the shortcut (identity by name); explicit `'a`. |
+| `Classify(args, shortcuts)` | `pub fn classify<'a>(args: &[String], shortcuts: &'a [Shortcut]) -> Decision<'a>`. |
+
+### `selfupdate` (Go `internal/selfupdate` → `src/selfupdate.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Asset`/`Info` | `pub struct Asset { name, url, size: i64, checksums_url }`, `pub struct Info { current, latest, has_update, asset }`. |
+| `AssetName()` | `pub fn asset_name(os, arch) -> String` (macos→darwin, x86_64→amd64, aarch64→arm64). |
+| `Check(ctx, current)` / `Apply(ctx, asset, dest)` | `check(current, http: &dyn HttpClient) -> Result<Option<Info>, Error>`, `apply(asset, dest, http) -> Result<(), Error>`. |
+| net/http default client | injected `pub trait HttpClient { fn get(url, accept) -> Result<HttpResponse, HttpError> }`; retry (MAX_ATTEMPTS=3, 300ms×attempt, 4xx terminal) in-module. Prod impl = `ureq` (deferred to binary wiring); tests inject a fake — no real network. |
+| apply ordering | download → **verify (size + sha256, refuse if no checksums)** → swap. Swap runs ONLY after verify Ok (security invariant). |
+| `error` | `pub enum Error` (Origin/NoAsset/Http/QueryReleases/DecodeRelease/SizeMismatch/NoChecksums/FetchChecksums/NotListed/ShaMismatch/Swap); `From<origin::Error>`. |
+
+### `store` (Go `internal/store` → `src/store.rs` + `src/store_migrations/*.sql`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Store`/`Record`/`AuditRow`/`VerifyResult`/`RawRow` | same names; `Record.env_subset: Option<BTreeMap>` (`None`→`null`, sorted keys match Go map JSON); `ts: OffsetDateTime`, `duration: Duration`. |
+| `Open`/`Insert`/`Records`/`Tail`/`Verify`/`RawRows`/`Close` | `store::open(path)`, `Store::insert/records/tail/verify/raw_rows/close` + `Drop`. |
+| tamper-evident `chainHash` | `sha256(prev ‖ 0x1f-joined fields)` hex — field order ts/os_user/identity/cwd/argv/env/backend/backend_path/mode/shortcut/exit/durMs/enrichment; `prev`="" for row 1; NULL columns fold as "" (COALESCE on read). REPRODUCED byte-for-byte. |
+| migrations (0001/0002/0003.sql) | embedded `include_str!`, run in order on open with a `schema_migrations` table (skip-if-applied); SQL byte-identical. |
+| PRAGMAs | `busy_timeout=5000; journal_mode=WAL; synchronous=NORMAL`; every insert = `BEGIN IMMEDIATE` (Go `_txlock=immediate`). |
+| `error` | `pub enum Error { Io, Sqlite, Json, TimeFormat, Closed }`. Dep: `rusqlite` (bundled). |
+
+### `doctor` (Go `internal/doctor` → `src/doctor.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Config` (`Version`,`ManagedGitPath`,`AuditDBPath`) | `pub struct Config { version: String, managed_git_path: Option<PathBuf>, audit_db_path: PathBuf }` (`""`→`None`). |
+| `Run(cfg, args) int` | `pub fn run(cfg: Config, args: &[String]) -> i32`. |
+| `checkStatus` + `exitCodeFor`/`summaryLine`/`badge`/`samePath` | private `enum CheckStatus { Ok, Warn, Fail }` (`Ord`) + fns; badges `[ ok ]`/`[warn]`/`[fail]`, exit Fail→1 else 0. lipgloss color dropped (text verbatim); `same_path` case-insensitive everywhere. |
+
+### `gitwin` (Go `internal/gitwin` → `src/gitwin.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Asset`/`Release`/`Manifest`/`ManifestAsset` | same names (serde). `Manifest::for_`→`Option`, `ensure_pinned`/`ensure`→`Result<PathBuf, Error>`. |
+| net/http | **REUSES `selfupdate::HttpClient`**; own retry consts `MAX_ATTEMPTS=3`/`RETRY_BACKOFF=500ms`; 5xx+transport retry, 4xx terminal. |
+| `filepath.Clean` + zip-slip / tar-traversal guard | hand-ported lexical clean + safe-join (`../` refused, absolute contained); hardlink/symlink dereferenced. |
+| `Unzip`/`ExtractTarBz2` | `zip`/`tar`/`bzip2` crates (format decode only, guards hand-ported). |
+| `error` | `pub enum Error` (Origin/Io/Request/Status/Decode/UnsupportedArch/NoAsset/UnsafePath/OpenZip/ReadTar/Sha256Mismatch/NoSha256/Missing); `From<origin::Error>`/`From<io::Error>`. |
+
+### `installer` (Go `internal/installer` → `src/installer/installer.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Result` (ShimDir/ShimGit/BackendPath/PathApplied/Instruction) | `pub struct Result { shim_dir/shim_git/backend_path: PathBuf, path_applied: bool, instruction: String }`. |
+| `Install(applyPath)` / `Uninstall()` | `install(apply_path: bool) -> Result<Result, Error>`, `uninstall() -> Result<String, Error>`. |
+| `prependPathValue` | `prepend_path_value(user_path, dir) -> (String, bool)` — `;`-split exact-segment dedup. |
+| Windows launchers + PATH | shim = embedded PE via `shim::binary`; sh/bash = `fs::hard_link(git.exe)`; `.shim` scoop-format; user PATH via `powershell [Environment]::…EnvironmentVariable`. `#[cfg(not(windows))]` = plain copy. |
+| `error` | `pub enum Error { Io{context,source}, Message(String) }`. Deviation: `os.SameFile` inode → canonical-path identity. |
+
+### `runner` (Go `internal/runner` → `src/runner.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `GateFunc func(ctx,args)(int,bool)` | `pub type GateFunc = Box<dyn Fn(&enrich::Ctx, &[String]) -> (i32, bool)>` — `(code,true)` blocks. |
+| `Runner` (holds `*store.Store`) | `pub struct Runner<'a>` — borrows `Option<&'a Store>`; `gate: Option<GateFunc>`. |
+| `New(b,s,e,warn)` | `Runner::new(backend, Option<&Store>, Option<Box<dyn Enricher>>, Option<Box<dyn Write>>)`; None enricher→noop, None warn→stderr. |
+| `Guard/SetPolicyPath/Passthrough/Shortcut` | same, snake_case; gate invoked FIRST (fail-closed), blocked rows still audited (mode "blocked"); env subset captured (SSH_AUTH_SOCK/PATH/GIT_*) + `redact::string`. |
+| deviations | `os_user` from env, `identity` "" (no std user-DB); infallible `Enricher` (no skip-warning). |
+
+### `gates` (Go root `gates.go` → `src/gates.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `enforceGates(args, gitPath) (int, bool)` | `pub fn enforce_gates(args: &[String], git_path: &str) -> (i32, bool)` — only public item; `(code,true)`=refuse. |
+| `resolvePolicy` (fail-closed) | private `resolve_policy(machine, user, marker) -> Result<(Policy,String), Error>`; malformed machine policy or ENFORCE marker → `Err` (blocks). |
+| `gitQuery`/`gitBytes` seams | `thread_local` seams + `git_query`/`git_bytes`; tests install Drop-restore stubs. |
+| `isExecFailure` | `enum GitError { Exit, Failure }`; exec failure → **block_unverifiable** (fail-closed); git rejection falls through. |
+| remote allowlist/rewrite | refuse `-c`/`GIT_CONFIG_*` url.*.insteadOf / remote.*.url overrides + `!shell` alias injection before any git call. |
+| `dedupeFindings` | key `file|rule_id|secret|start_line`, first-wins, order preserved. |
+| `scan.*` | rebuilt on `detect::Detector` (crate::scan has a different, git-object shape); reuses `report::Finding`. |
+
+### `provision` (Go `internal/provision` → `src/provision.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `ManagedGitPath`/`AuditDBPath` | `managed_git_path()->Option<PathBuf>` / `audit_db_path()->PathBuf` (env `GITC_GIT_BACKEND`/`GITC_AUDIT_DB`). |
+| `ResolveOrProvision` | `resolve_or_provision(http, &Path, &mut dyn Write) -> Result<backend::Backend, Error>`; resolve→(NoBackend & pinned & !background)→provision→re-resolve. |
+| `FetchGit`/`UpdateBackendIfStale`/`GcInstalls` | same snake_case; HTTP via `selfupdate::HttpClient`. |
+| gc keep-set | active∪previous app-uuids; sweep under `settings::with_lock` (TOCTOU); never the active. |
+| `Error` | `{Backend,Gitwin,InstallId,NoPinned,AutoProvision}`; `AutoProvision.source` keeps Go `%w`. |
+
+### `auditcmd` (Go `internal/auditcmd` → `src/auditcmd.rs`, feature `app`)
+
+| Go | Rust |
+|---|---|
+| `Run(args, *store.Store) int` | `pub fn run(args: &[String], store: &Store) -> i32` (nil guard dropped). |
+| `auditModel` + bubbletea `Update`/`View` | `pub(crate) struct AuditModel`; `update(&mut self, Msg)->Option<Cmd>`, `view()`/`detail_view()` — PURE strings, ratatui only in the live loop. |
+| `tea.Msg`/`KeyMsg`/`Cmd`, bubbles textinput, lipgloss | own `Msg`/`Key`/`Cmd`, private `SearchInput`; crossterm→Msg in loop only; lipgloss color dropped, width kept. Deps `ratatui`+`crossterm`. |

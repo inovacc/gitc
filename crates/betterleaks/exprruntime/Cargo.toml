@@ -47,4 +47,6 @@ rsa = "0.9"
 # creates no cycle: `config` holds `Program` as an opaque handle and never
 # depends on this crate.
 [dev-dependencies]
+testkeys = { path = "../testkeys" }
 config = { path = "../config" }
+

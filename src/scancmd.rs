@@ -1844,4 +1844,621 @@ mod tests {
         assert!(line.ends_with('\r'));
         assert!(line.contains("// gitc:known [v1:a]"));
     }
+
+    // ── shared test helpers for the new coverage-raising tests ───────────────
+
+    /// The betterleaks detector + a non-empty `Vec<Finding>` from a planted key,
+    /// carrying a file + commit so every report format has something to emit.
+    fn planted() -> (Detector, Vec<Finding>) {
+        let d = Detector::with_default_rules();
+        let content = format!("aws_key = \"{}\"\n", aws_key());
+        let hits = detect_frag(&d, content.as_bytes(), "src/app.rs", "abc123def4567890abcd");
+        assert!(!hits.is_empty(), "planted key must be detected");
+        (d, hits)
+    }
+
+    /// Emit `hits` in `format` to a temp file (exercising `emit`'s file branch)
+    /// and return the written text.
+    fn emit_to_file(format: &str, hits: &[Finding], d: Option<&Detector>) -> String {
+        let dir = unique_tmp();
+        let path = dir.join("report.out");
+        let o = Opts {
+            report_format: format.to_string(),
+            report_path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        emit(&o, hits, d).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        text
+    }
+
+    /// The scoop/system git, or `None` when no usable git is present (test skips).
+    fn maybe_git() -> Option<String> {
+        std::env::var("GITC_TEST_GIT")
+            .ok()
+            .or_else(|| Some("git".to_string()))
+            .filter(|g| {
+                std::process::Command::new(g)
+                    .arg("--version")
+                    .output()
+                    .is_ok_and(|o| o.status.success())
+            })
+    }
+
+    /// Build a real temp repo on `main` with a committed file carrying an AWS key,
+    /// returning `(workdir, gitdir)`. `None` when git is unavailable.
+    fn repo_with_committed_key() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+        let git = maybe_git()?;
+        let dir = unique_tmp();
+        let run = |args: &[&str]| {
+            std::process::Command::new(&git)
+                .args(args)
+                .current_dir(&dir)
+                .env("GIT_AUTHOR_NAME", "T")
+                .env("GIT_AUTHOR_EMAIL", "t@e.com")
+                .env("GIT_COMMITTER_NAME", "T")
+                .env("GIT_COMMITTER_EMAIL", "t@e.com")
+                .output()
+                .unwrap();
+        };
+        run(&["init", "-q", "-b", "main"]);
+        std::fs::write(
+            dir.join("creds.txt"),
+            format!("aws_key = \"{}\"\n", aws_key()),
+        )
+        .unwrap();
+        run(&["add", "-A"]);
+        run(&["-c", "commit.gpgsign=false", "commit", "-q", "-m", "c"]);
+        let gitdir = dir.join(".git");
+        Some((dir, gitdir))
+    }
+
+    // ── report emitters (json / sarif / junit / csv / human) ─────────────────
+
+    #[test]
+    fn emit_json_is_wellformed_and_has_fields() {
+        let (d, hits) = planted();
+        let text = emit_to_file("json", &hits, Some(&d));
+        // A single-space-indented JSON array (Go `SetIndent("", " ")`).
+        assert!(text.trim_start().starts_with('['), "json array: {text}");
+        assert!(text.trim_end().ends_with(']'));
+        assert!(text.contains("\"RuleID\""));
+        assert!(text.contains("\"Fingerprint\""));
+        assert!(text.contains(&hits[0].rule_id));
+    }
+
+    #[test]
+    fn emit_sarif_is_wellformed_and_has_driver() {
+        let (d, hits) = planted();
+        let text = emit_to_file("sarif", &hits, Some(&d));
+        assert!(text.contains("\"version\": \"2.1.0\""), "sarif version: {text}");
+        assert!(text.contains("$schema"));
+        assert!(text.contains("\"runs\""));
+        assert!(text.contains("\"ruleId\""));
+        // The driver's rules metadata carries the rule that fired.
+        assert!(text.contains(&hits[0].rule_id));
+    }
+
+    #[test]
+    fn emit_junit_is_xml_testsuites() {
+        let (d, hits) = planted();
+        let text = emit_to_file("junit", &hits, Some(&d));
+        assert!(text.contains("<testsuites"));
+        assert!(text.contains("<testsuite"));
+        assert!(text.contains("<testcase"));
+        assert!(text.contains("<failure"));
+    }
+
+    #[test]
+    fn emit_csv_has_header_and_row() {
+        let (d, hits) = planted();
+        let text = emit_to_file("csv", &hits, Some(&d));
+        let mut lines = text.lines();
+        let header = lines.next().unwrap();
+        assert!(header.starts_with("RuleID,Commit,File"));
+        assert!(header.contains("Fingerprint"));
+        let row = lines.next().expect("one data row");
+        assert!(row.contains(&hits[0].rule_id));
+    }
+
+    #[test]
+    fn emit_default_and_unknown_format_use_human() {
+        let (d, hits) = planted();
+        // An unrecognized format falls back to the human writer (the `_` arm).
+        let text = emit_to_file("no-such-format", &hits, Some(&d));
+        assert!(text.contains("finding(s)"));
+        assert!(text.contains(&hits[0].rule_id));
+    }
+
+    #[test]
+    fn write_human_empty_and_populated() {
+        // Empty → the "no secrets found" line.
+        let mut buf = Vec::new();
+        write_human(&mut buf, &[]).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "gitc scan: no secrets found\n");
+        // Populated with a commit → `file@<short-sha>` location prefix.
+        let with_commit = Finding {
+            rule_id: "r".to_string(),
+            file: "a.rs".to_string(),
+            commit: "0123456789abcdef0123".to_string(),
+            start_line: 3,
+            fingerprint: "fp".to_string(),
+            secret: "s".to_string(),
+            ..Default::default()
+        };
+        let no_commit = Finding {
+            rule_id: "r2".to_string(),
+            file: "b.rs".to_string(),
+            start_line: 9,
+            fingerprint: "fp2".to_string(),
+            secret: "s2".to_string(),
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        write_human(&mut buf, &[with_commit, no_commit]).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        assert!(text.contains("a.rs@0123456789ab:3"), "short-sha location: {text}");
+        assert!(text.contains("b.rs:9"), "no-commit location: {text}");
+        assert!(text.contains("gitc scan: 2 finding(s)"));
+    }
+
+    // ── finish() : redaction + exit codes ────────────────────────────────────
+
+    #[test]
+    fn finish_redacts_and_returns_exit_code() {
+        let (d, mut hits) = planted();
+        let dir = unique_tmp();
+        let path = dir.join("r.json");
+        let o = Opts {
+            report_format: "json".to_string(),
+            report_path: path.to_string_lossy().into_owned(),
+            redact: 100,
+            exit_code: 7,
+            ..Default::default()
+        };
+        let code = finish(&o, &mut hits, Some(&d));
+        assert_eq!(code, 7, "findings → the configured exit code");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains(&aws_key()),
+            "redaction must mask the raw secret in the report"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finish_clean_returns_exit_clean() {
+        let dir = unique_tmp();
+        let path = dir.join("r.json");
+        let o = Opts {
+            report_format: "json".to_string(),
+            report_path: path.to_string_lossy().into_owned(),
+            exit_code: 9,
+            ..Default::default()
+        };
+        assert_eq!(finish(&o, &mut Vec::new(), None), EXIT_CLEAN);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── run() dispatch + usage/help/error branches ───────────────────────────
+
+    #[test]
+    fn run_help_and_no_args() {
+        assert_eq!(run(&[]), EXIT_USAGE); // no subcommand
+        assert_eq!(run(&s(&["help"])), EXIT_CLEAN);
+        assert_eq!(run(&s(&["-h"])), EXIT_CLEAN);
+        assert_eq!(run(&s(&["--help"])), EXIT_CLEAN);
+        assert_eq!(run(&s(&["totally-unknown-sub"])), EXIT_USAGE);
+    }
+
+    #[test]
+    fn run_parse_error_paths_per_mode() {
+        // A bad flag makes `parse` fail → usage error, before any scanning.
+        assert_eq!(run(&s(&["git", "--nope"])), EXIT_USAGE);
+        assert_eq!(run(&s(&["dir", "--nope"])), EXIT_USAGE);
+        assert_eq!(run(&s(&["stdin", "--nope"])), EXIT_USAGE);
+    }
+
+    #[test]
+    fn usage_and_usage_err_are_nonempty() {
+        assert!(usage().contains("gitc scan"));
+        assert_eq!(usage_err("boom"), EXIT_USAGE);
+    }
+
+    // ── scan_dir + walk_files (dir mode end-to-end) ──────────────────────────
+
+    #[test]
+    fn scan_dir_missing_path_is_usage_error() {
+        assert_eq!(scan_dir(&Opts::default()), EXIT_USAGE);
+    }
+
+    #[test]
+    fn scan_dir_bad_config_is_usage_error() {
+        let dir = unique_tmp();
+        let o = Opts {
+            positional: vec![dir.to_string_lossy().into_owned()],
+            config_path: "no-such-config-file-xyz.toml".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(scan_dir(&o), EXIT_USAGE);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_dir_finds_planted_key_and_skips_git_binary_subdirs() {
+        let root = unique_tmp();
+        // A nested dir with a planted key; a .git dir (skipped); a binary file (skipped).
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(
+            root.join("sub").join("creds.txt"),
+            format!("aws_key = \"{}\"\n", aws_key()),
+        )
+        .unwrap();
+        std::fs::write(root.join(".git").join("planted.txt"), format!("aws_key = \"{}\"\n", aws_key())).unwrap();
+        std::fs::write(root.join("blob.bin"), b"\x00\x01secret\x00").unwrap();
+        let report = root.join("out.json");
+        let o = Opts {
+            positional: vec![root.to_string_lossy().into_owned()],
+            report_format: "json".to_string(),
+            report_path: report.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(scan_dir(&o), EXIT_FINDINGS);
+        let text = std::fs::read_to_string(&report).unwrap();
+        assert!(text.contains("sub/creds.txt"), "reports the nested file: {text}");
+        assert!(
+            !text.contains(".git/planted.txt"),
+            ".git must be skipped by walk_files"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn scan_dir_clean_tree_is_exit_clean() {
+        let root = unique_tmp();
+        std::fs::write(root.join("readme.txt"), "nothing to see here\n").unwrap();
+        let report = root.join("out.json");
+        let o = Opts {
+            positional: vec![root.to_string_lossy().into_owned()],
+            report_format: "json".to_string(),
+            report_path: report.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(scan_dir(&o), EXIT_CLEAN);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── make_detector error path ─────────────────────────────────────────────
+
+    #[test]
+    fn make_detector_bad_config_errors() {
+        let o = Opts {
+            config_path: "definitely-not-a-real-config.toml".to_string(),
+            ..Default::default()
+        };
+        assert!(make_detector(&o, Path::new("."), ".").is_err());
+    }
+
+    // ── config_target / load_config_at with a real custom file ───────────────
+
+    fn write_min_config() -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = unique_tmp();
+        let path = dir.join("rules.toml");
+        std::fs::write(
+            &path,
+            "title = \"test\"\n\n[[rules]]\nid = \"my-test-rule\"\ndescription = \"a test rule\"\nregex = '''secret-[A-Z0-9]{10}'''\nkeywords = [\"secret-\"]\n",
+        )
+        .unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn config_check_show_custom_file() {
+        let (dir, path) = write_min_config();
+        let p = path.to_string_lossy().into_owned();
+        assert_eq!(config_cmd(&s(&["check", p.as_str()])), EXIT_CLEAN);
+        assert_eq!(config_cmd(&s(&["show", p.as_str()])), EXIT_CLEAN);
+        assert_eq!(config_cmd(&s(&["path", p.as_str()])), EXIT_CLEAN);
+        // --config wins over a bare positional for the target.
+        assert_eq!(config_cmd(&s(&["check", "--config", p.as_str()])), EXIT_CLEAN);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_usage_and_error_branches() {
+        assert_eq!(config_cmd(&s(&[])), EXIT_USAGE); // no mode
+        assert_eq!(config_cmd(&s(&["show", "--nope"])), EXIT_USAGE); // parse error
+        assert_eq!(config_cmd(&s(&["bogus-mode"])), EXIT_USAGE); // unknown mode
+        assert_eq!(config_cmd(&s(&["show", "no-such-file-xyz.toml"])), EXIT_USAGE);
+    }
+
+    #[test]
+    fn config_target_prefers_config_flag() {
+        let o = Opts {
+            config_path: "flag.toml".to_string(),
+            positional: vec!["pos.toml".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(config_target(&o), "flag.toml");
+        let o2 = Opts {
+            positional: vec!["pos.toml".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(config_target(&o2), "pos.toml");
+        assert_eq!(config_target(&Opts::default()), "");
+        // The conventional built-in path is under cwd.
+        assert!(default_config_path().ends_with(".gitleaks.toml"));
+    }
+
+    #[test]
+    fn explain_with_custom_config_file() {
+        let (dir, path) = write_min_config();
+        let p = path.to_string_lossy().into_owned();
+        // `explain <rule> --config <file>` reads the custom catalogue; the config
+        // file positional must not be mistaken for the rule id.
+        assert_eq!(
+            explain_cmd(&s(&["my-test-rule", "--config", p.as_str()])),
+            EXIT_CLEAN
+        );
+        assert_eq!(
+            explain_cmd(&s(&["no-such-rule", "--config", p.as_str()])),
+            EXIT_USAGE
+        );
+        // A bad config surfaces as a usage error.
+        assert_eq!(
+            explain_cmd(&s(&["any-rule", "--config", "no-such-file.toml"])),
+            EXIT_USAGE
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── known_cmd error + success paths ──────────────────────────────────────
+
+    #[test]
+    fn known_cmd_error_paths() {
+        assert_eq!(known_cmd(&[]), EXIT_USAGE); // no args
+        assert_eq!(known_cmd(&s(&["no-colon-here"])), EXIT_RUNTIME); // no file:line
+        assert_eq!(known_cmd(&s(&["file.rs:notaline"])), EXIT_RUNTIME); // bad line
+        assert_eq!(known_cmd(&s(&["no-such-file-xyz.rs:1"])), EXIT_RUNTIME); // unreadable
+        // A clean file has no secret on the requested line.
+        let dir = unique_tmp();
+        let clean = dir.join("clean.rs");
+        std::fs::write(&clean, "let x = 1;\n").unwrap();
+        assert_eq!(
+            known_cmd(&s(&[format!("{}:1", clean.to_string_lossy()).as_str()])),
+            EXIT_RUNTIME
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn known_cmd_stamps_a_real_finding() {
+        // `gitc scan known <file>:<line>` acknowledges a secret the scanner already
+        // reported. The `<line>` a user passes is exactly what `gitc scan` printed —
+        // and the detection engine reports line numbers 0-based (a secret on the
+        // third file line is reported as line 2). So the test derives `target` from
+        // the finding's own `start_line`, mirroring the copy-from-report workflow,
+        // rather than hard-coding a 1-based line. The secret is placed off the first
+        // line so `start_line > 0` (a first-line finding reports line 0, which the
+        // `<file>:<line>` CLI form cannot express).
+        let dir = unique_tmp();
+        let file = dir.join("creds.rs");
+        let content = format!("line one\nline two\naws_key = \"{}\"\nline four\n", aws_key());
+        std::fs::write(&file, &content).unwrap();
+        let path_str = file.to_string_lossy().into_owned();
+
+        // Sanity + the reported line: `known` acknowledges what detection surfaces.
+        let f = detect_frag(&Detector::with_default_rules(), content.as_bytes(), &path_str, "")
+            .into_iter()
+            .next()
+            .expect("input must be detectable for the known test to be meaningful");
+        let target = f.start_line;
+        assert!(target > 0, "secret should not be on the first (line-0) line");
+
+        let arg = format!("{path_str}:{target}");
+        assert_eq!(known_cmd(&s(&[arg.as_str()])), EXIT_CLEAN);
+        let after = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            after.contains("gitc:known [v1:"),
+            "an acknowledged finding must be stamped with a marker: {after}"
+        );
+        // Re-acknowledging the same line is idempotent (still exactly one marker).
+        assert_eq!(known_cmd(&s(&[arg.as_str()])), EXIT_CLEAN);
+        let after2 = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            after2.matches("gitc:known [").count(),
+            1,
+            "re-acknowledging must not duplicate the marker"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── baseline_cmd usage/error dispatch (no repo scan) ─────────────────────
+
+    #[test]
+    fn baseline_cmd_usage_and_parse_error() {
+        assert_eq!(baseline_cmd(&s(&["bogus"])), EXIT_USAGE); // unknown subcommand
+        assert_eq!(baseline_cmd(&[]), EXIT_USAGE); // no subcommand
+        assert_eq!(baseline_cmd(&s(&["create", "--nope"])), EXIT_USAGE); // parse error
+    }
+
+    // ── hooks_cmd dispatch error (does not touch any hook) ────────────────────
+
+    #[test]
+    fn hooks_cmd_unknown_subcommand_is_usage_error() {
+        // `bogus` never reaches install/uninstall/status, so no hook is written.
+        assert_eq!(hooks_cmd(&s(&["bogus-hook-arg"])), EXIT_USAGE);
+    }
+
+    // ── CachedFinding::to_finding empty-commit fingerprint ───────────────────
+
+    #[test]
+    fn cached_finding_empty_commit_fingerprint() {
+        let cf = CachedFinding {
+            rule_id: "r".to_string(),
+            start_line: 4,
+            end_line: 4,
+        };
+        let f = cf.to_finding("a.rs", "");
+        assert_eq!(f.fingerprint, "a.rs:r:4", "no commit → file:rule:line");
+        let f2 = cf.to_finding("a.rs", "deadbeef");
+        assert_eq!(f2.fingerprint, "deadbeef:a.rs:r:4");
+        assert!(f.secret.contains("cached"));
+    }
+
+    // ── git-repo backed: scope resolution + object scans ─────────────────────
+
+    #[test]
+    fn resolve_commitish_and_rev_range() {
+        let Some((dir, gitdir)) = repo_with_committed_key() else {
+            eprintln!("skip resolve_commitish: no git");
+            return;
+        };
+        let head = crate::gitwalk::head_tip(&gitdir).unwrap();
+        // HEAD, empty, a full 40-hex oid, and a branch name all resolve.
+        assert_eq!(resolve_commitish(&gitdir, "HEAD").unwrap(), head);
+        assert_eq!(resolve_commitish(&gitdir, "").unwrap(), head);
+        assert_eq!(resolve_commitish(&gitdir, &head).unwrap(), head);
+        assert_eq!(resolve_commitish(&gitdir, "main").unwrap(), head);
+        // An unresolvable ref is an error.
+        assert!(resolve_commitish(&gitdir, "no-such-ref").is_err());
+        // Rev ranges: `A..B` (exclude+tip), `A...B` (both tips), single rev.
+        let (tips, excl) = parse_rev_range(&gitdir, "HEAD..HEAD").unwrap();
+        assert_eq!(tips, vec![head.clone()]);
+        assert_eq!(excl, vec![head.clone()]);
+        let (tips3, excl3) = parse_rev_range(&gitdir, "HEAD...HEAD").unwrap();
+        assert_eq!(tips3, vec![head.clone(), head.clone()]);
+        assert!(excl3.is_empty());
+        let (tips1, excl1) = parse_rev_range(&gitdir, "HEAD").unwrap();
+        assert_eq!(tips1, vec![head.clone()]);
+        assert!(excl1.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_scope_variants() {
+        let Some((dir, gitdir)) = repo_with_committed_key() else {
+            eprintln!("skip resolve_scope: no git");
+            return;
+        };
+        let head = crate::gitwalk::head_tip(&gitdir).unwrap();
+        // Default (history/HEAD).
+        let (tips, excl) = resolve_scope(&gitdir, &Opts::default()).unwrap();
+        assert_eq!(tips, vec![head.clone()]);
+        assert!(excl.is_empty());
+        // --all-refs.
+        let (tips_ar, _) = resolve_scope(
+            &gitdir,
+            &Opts {
+                all_refs: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(tips_ar.contains(&head));
+        // --pre-push with no tracking ref → all of HEAD is "outgoing", no exclude.
+        let (tips_pp, excl_pp) = resolve_scope(
+            &gitdir,
+            &Opts {
+                pre_push: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(tips_pp, vec![head.clone()]);
+        assert!(excl_pp.is_empty());
+        // An explicit single rev positional.
+        let (tips_rev, _) = resolve_scope(
+            &gitdir,
+            &Opts {
+                positional: vec!["HEAD".to_string()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(tips_rev, vec![head.clone()]);
+        // More than one positional rev is a usage error.
+        assert!(resolve_scope(
+            &gitdir,
+            &Opts {
+                positional: vec!["a".to_string(), "b".to_string()],
+                ..Default::default()
+            },
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_staged_reads_index_blobs() {
+        let Some((dir, gitdir)) = repo_with_committed_key() else {
+            eprintln!("skip scan_staged: no git");
+            return;
+        };
+        let d = Detector::with_default_rules();
+        let hits = scan_staged(&Opts::default(), &d, &gitdir).unwrap();
+        assert!(!hits.is_empty(), "the staged key must be found");
+        // Staged content has no commit → fingerprint is path:rule:line.
+        assert!(hits.iter().all(|f| f.commit.is_empty()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_history_end_to_end_reports_findings() {
+        let Some((dir, gitdir)) = repo_with_committed_key() else {
+            eprintln!("skip scan_history: no git");
+            return;
+        };
+        let report = dir.join("hist.json");
+        let o = Opts {
+            history: true,
+            report_format: "json".to_string(),
+            report_path: report.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(scan_history(&gitdir, &o), EXIT_FINDINGS);
+        let text = std::fs::read_to_string(&report).unwrap();
+        assert!(text.contains("creds.txt"), "history report names the file");
+        // With --cache the second run reuses the per-OID cache (still reports).
+        let o2 = Opts {
+            cache: true,
+            ..o
+        };
+        assert_eq!(scan_history(&gitdir, &o2), EXIT_FINDINGS);
+        assert!(gitdir.join("gitc-scan-cache").exists(), "cache persisted");
+        // A third run hits the cache path.
+        assert_eq!(scan_history(&gitdir, &o2), EXIT_FINDINGS);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_trace_matches_and_misses() {
+        let Some((dir, gitdir)) = repo_with_committed_key() else {
+            eprintln!("skip scan_trace: no git");
+            return;
+        };
+        // Discover a real finding's fingerprint via a history scan.
+        let d = Detector::with_default_rules();
+        let head = crate::gitwalk::head_tip(&gitdir).unwrap();
+        let (intros, _) = crate::gitwalk::reachable_blob_intros(&gitdir, &[head], &[]);
+        let hits = scan_intros(&Opts::default(), &d, &gitdir, &intros, None).unwrap();
+        assert!(!hits.is_empty());
+        let fp = hits[0].fingerprint.clone();
+        let report = dir.join("trace.json");
+        let o = Opts {
+            trace_finding: Some(fp),
+            report_format: "json".to_string(),
+            report_path: report.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(scan_trace(&gitdir, &o, o.trace_finding.as_deref().unwrap()), EXIT_FINDINGS);
+        // A fingerprint that matches nothing → clean exit (no findings emitted).
+        assert_eq!(
+            scan_trace(&gitdir, &o, "ffffffffffffffffffffffffffffffffffffffff:none:1"),
+            EXIT_CLEAN
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

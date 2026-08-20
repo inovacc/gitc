@@ -1,7 +1,11 @@
 [package]
 name = "gitc"
-version = "0.1.0"
+# Continues the existing tag series (v0.1.0 … v0.5.0), which until now described the
+# Go implementation while this manifest sat at 0.1.0. v0.6.0 is the first version
+# where the tag and the manifest describe the same software: Rust-only.
+version = "0.6.0"
 edition = "2021"
+publish = false
 description = "A git toolkit in Rust: pure-Rust readers for git's on-disk formats (objects/packs/index) + a git filter-repo port, plus a drop-in `git` binary that IS git (git's own C compiled in via the C ABI)."
 license = "BSD-3-Clause"
 build = "build.rs"
@@ -39,6 +43,34 @@ sources = { path = "crates/betterleaks/sources", optional = true }
 # The rule catalogue + its TOML loader — for `--config <file>`, `config check`,
 # `explain <rule>`, and SARIF rule metadata.
 config = { path = "crates/betterleaks/config", optional = true }
+# ── ported Go application layer (behind `app`) ──────────────────────────────
+# OS CSPRNG for UUIDv7 (Go used crypto/rand; Rust std has no CSPRNG). Tiny,
+# ubiquitous, maintained. Justified: std lacks secure randomness.
+getrandom = { version = "0.2", optional = true }
+# SHA-256 for origin URL pin integrity + audit hash-chain (Go crypto/sha256).
+# Justified: crypto is not in std.
+sha2 = { version = "0.10", optional = true }
+# JSON config/records (Go encoding/json) — settings, policy, enrich, manifest,
+# store, selfupdate, gitwin. The one sanctioned JSON default; std has no JSON.
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+# RFC 3339 timestamps + now-utc (Go time.Parse(RFC3339)/time.Now) for settings'
+# update throttle. std has no RFC 3339. Go's duration-string format is hand-ported.
+time = { version = "0.3", features = ["formatting", "parsing", "macros"], optional = true }
+# Embedded SQLite for the forensic audit log (Go used modernc.org/sqlite, pure-Go).
+# `bundled` compiles the SQLite C amalgamation. std has no SQL engine.
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+# Archive decode for managed-git provisioning (Go archive/tar, compress/bzip2, and
+# the zip reader). Format libs — std has none; the traversal/zip-slip guards are
+# hand-ported. Behind `app`.
+zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
+tar = { version = "0.4", optional = true }
+bzip2 = { version = "0.4", optional = true }
+# Terminal UI for `gitc audit` (Go used charmbracelet bubbletea/bubbles/lipgloss;
+# no std analog). ratatui+crossterm are the Rust-canonical TUI stack; used ONLY in
+# the live event loop — the tested Model/Update logic is pure. Behind `app`.
+ratatui = { version = "0.28", optional = true }
+crossterm = { version = "0.28", optional = true }
 
 [features]
 # Compiles the history-scrub engine (`filterrepo`, a `git filter-repo` port) + its
@@ -50,7 +82,16 @@ scrub = ["dep:regex", "scan"]
 # over the git-object readers, using the vendored betterleaks `detect`/`report`
 # crates. Off by default.
 scan = ["dep:detect", "dep:report", "dep:sources", "dep:config"]
+# The ported Go application layer (uuidv7, paths, settings, store, gates, …),
+# ported module-by-module from the go-main Go implementation. Off by default.
+app = ["dep:getrandom", "dep:regex", "dep:sha2", "dep:serde", "dep:serde_json", "dep:time", "dep:rusqlite", "dep:zip", "dep:tar", "dep:bzip2", "dep:ratatui", "dep:crossterm", "scan", "scrub"]
 
 [profile.release]
 # git binaries are large; keep symbols lean.
 strip = true
+
+[dev-dependencies]
+# Credential-shaped strings for tests, built at runtime so no literal provider
+# token is ever committed (the repo is public; see the crate's own docs).
+testkeys = { path = "crates/betterleaks/testkeys" }
+

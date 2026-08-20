@@ -798,6 +798,35 @@ mod tests {
         assert_eq!(v[0].oid, A); // date 100 first
         assert_eq!(v[1].oid, B);
     }
+
+    #[test]
+    fn mode_kind_classifies_every_mode() {
+        // The octal-padded (`040000`) and executable (`100755`) forms, plus the
+        // unknown/skip fallthrough, alongside the common cases.
+        assert!(matches!(mode_kind(b"040000"), EntryKind::Tree));
+        assert!(matches!(mode_kind(b"40000"), EntryKind::Tree));
+        assert!(matches!(mode_kind(b"100644"), EntryKind::Blob));
+        assert!(matches!(mode_kind(b"100755"), EntryKind::Blob));
+        assert!(matches!(mode_kind(b"120000"), EntryKind::Skip)); // symlink
+        assert!(matches!(mode_kind(b"160000"), EntryKind::Skip)); // gitlink
+        assert!(matches!(mode_kind(b"999999"), EntryKind::Skip)); // unknown
+
+        // parse_tree threads the exec-blob + padded-subtree modes through cleanly.
+        let mut body = Vec::new();
+        let push = |body: &mut Vec<u8>, mode: &str, name: &str, byte: u8| {
+            body.extend_from_slice(mode.as_bytes());
+            body.push(b' ');
+            body.extend_from_slice(name.as_bytes());
+            body.push(0);
+            body.extend_from_slice(&[byte; 20]);
+        };
+        push(&mut body, "100755", "run.sh", 0x11);
+        push(&mut body, "040000", "dir", 0x22);
+        let entries = parse_tree(&body);
+        assert_eq!(entries.len(), 2);
+        assert!(matches!(entries[0].kind, EntryKind::Blob));
+        assert!(matches!(entries[1].kind, EntryKind::Tree));
+    }
 }
 
 /// End-to-end walk over a REAL repo built by git. Skipped (not failed) when no
@@ -933,6 +962,146 @@ mod e2e {
         };
         assert!(String::from_utf8_lossy(&read(&v1.oid_hex)).contains("VERSION-ONE-TOKEN"));
         assert!(String::from_utf8_lossy(&read(&v2.oid_hex)).contains("VERSION-TWO-TOKEN"));
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn tags_branches_merge_and_packed_refs() {
+        use super::{all_ref_tips, count_signed, pushed_blobs, resolve_ref};
+
+        let Some(bin) = find_git() else {
+            eprintln!("skipping tags_branches_merge e2e: no usable git found");
+            return;
+        };
+        let repo = temp_repo_dir();
+        let gitdir = repo.join(".git");
+
+        // A small multi-ref history: main + a feature branch merged back, plus a
+        // lightweight and an annotated tag, then everything packed into packed-refs.
+        git(&bin, &repo, &["init", "-q", "-b", "main"]);
+        let commit = |msg: &str| {
+            git(
+                &bin,
+                &repo,
+                &["-c", "commit.gpgsign=false", "commit", "-q", "-m", msg],
+            )
+        };
+
+        std::fs::write(repo.join("a.txt"), "alpha\n").unwrap();
+        git(&bin, &repo, &["add", "a.txt"]);
+        commit("c1");
+        let c1 = git(&bin, &repo, &["rev-parse", "HEAD"]);
+
+        git(&bin, &repo, &["checkout", "-q", "-b", "feature"]);
+        std::fs::write(repo.join("b.txt"), "beta\n").unwrap();
+        git(&bin, &repo, &["add", "b.txt"]);
+        commit("c2");
+        let c2 = git(&bin, &repo, &["rev-parse", "HEAD"]);
+
+        git(&bin, &repo, &["checkout", "-q", "main"]);
+        std::fs::write(repo.join("c.txt"), "gamma\n").unwrap();
+        git(&bin, &repo, &["add", "c.txt"]);
+        commit("c3");
+        let c3 = git(&bin, &repo, &["rev-parse", "HEAD"]);
+
+        git(
+            &bin,
+            &repo,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "merge",
+                "--no-ff",
+                "-q",
+                "-m",
+                "merge feature",
+                "feature",
+            ],
+        );
+        let merge = git(&bin, &repo, &["rev-parse", "HEAD"]);
+        assert_ne!(merge, c3, "--no-ff produces a real merge commit");
+
+        // A lightweight tag (→ commit oid) and an annotated tag (→ tag object oid).
+        git(&bin, &repo, &["tag", "v1"]);
+        git(&bin, &repo, &["tag", "-a", "v2", "-m", "annotated"]);
+        let v2obj = git(&bin, &repo, &["rev-parse", "refs/tags/v2"]);
+        let v2commit = git(&bin, &repo, &["rev-parse", "refs/tags/v2^{commit}"]);
+        assert_eq!(v2commit, merge, "annotated tag peels to the merge commit");
+        assert_ne!(v2obj, merge, "annotated tag object is its own oid");
+
+        // Move loose refs into packed-refs — exercises the packed-refs paths.
+        git(&bin, &repo, &["pack-refs", "--all"]);
+
+        // head_tip follows HEAD → refs/heads/main (now packed) → the merge commit.
+        assert_eq!(
+            head_tip(&gitdir).expect("HEAD resolves"),
+            merge,
+            "head_tip resolves through packed-refs"
+        );
+
+        // resolve_ref reads packed-refs for both a branch and a (lightweight) tag,
+        // and returns None for a ref that does not exist.
+        assert_eq!(
+            resolve_ref(&gitdir, "refs/heads/feature").as_deref(),
+            Some(c2.as_str())
+        );
+        assert_eq!(
+            resolve_ref(&gitdir, "refs/tags/v1").as_deref(),
+            Some(merge.as_str()),
+            "lightweight tag resolves straight to the commit"
+        );
+        assert_eq!(resolve_ref(&gitdir, "refs/heads/nope"), None);
+
+        // all_ref_tips gathers every distinct tip: HEAD/main (merge), feature (c2),
+        // and the annotated-tag OBJECT oid (peel `^` lines are skipped).
+        let tips = all_ref_tips(&gitdir);
+        let has = |o: &str| tips.iter().any(|t| t == o);
+        assert!(has(&merge), "merge tip present: {tips:?}");
+        assert!(has(&c2), "feature tip present: {tips:?}");
+        assert!(has(&v2obj), "annotated tag object present: {tips:?}");
+
+        // reachable_blob_intros over all tips introduces every tracked file's blob.
+        let (intros, truncated) = reachable_blob_intros(&gitdir, &tips, &[]);
+        assert!(!truncated, "small fixture must not truncate");
+        for p in ["a.txt", "b.txt", "c.txt"] {
+            assert!(
+                intros.iter().any(|b| b.path == p),
+                "blob for {p} attributed: {:?}",
+                intros.iter().map(|b| &b.path).collect::<Vec<_>>()
+            );
+        }
+        // a.txt is the oldest blob → attributed to the root commit c1.
+        assert!(
+            intros.iter().any(|b| b.path == "a.txt" && b.commit == c1),
+            "a.txt introduced by c1"
+        );
+
+        // pushed_blobs with no remote tip walks the whole local history.
+        let (all_blobs, tr0) = pushed_blobs(&gitdir, &merge, None);
+        assert!(!tr0);
+        for p in ["a.txt", "b.txt", "c.txt"] {
+            assert!(
+                all_blobs.iter().any(|b| b.path == p),
+                "pushed_blobs (no remote) includes {p}"
+            );
+        }
+
+        // With the remote already at c2, the walk stops there: c2/c1 are pruned as
+        // commits, so only the merge + c3 side is walked (still a bounded, finite set).
+        let (new_blobs, tr1) = pushed_blobs(&gitdir, &merge, Some(&c2));
+        assert!(!tr1);
+        assert!(
+            new_blobs.iter().any(|b| b.path == "c.txt"),
+            "c.txt is on the new (main) side"
+        );
+
+        // count_signed: nothing is signed here (offline, no gpg), but the tag
+        // enumeration walks the packed refs/tags (lightweight + annotated) and the
+        // reachable commit history without counting any signature.
+        let (signed_commits, signed_tags) = count_signed(&gitdir, &tips);
+        assert_eq!(signed_commits, 0, "no gpgsig headers in this fixture");
+        assert_eq!(signed_tags, 0, "the annotated tag is unsigned");
 
         let _ = std::fs::remove_dir_all(&repo);
     }

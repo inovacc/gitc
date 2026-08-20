@@ -2,6 +2,7 @@
 name = "sigv4"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
 [dependencies]
 # Justified crypto deps (PORT-GLOSSARY): Rust std has no SHA-256 / HMAC.

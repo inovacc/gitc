@@ -1,0 +1,224 @@
+{
+  "source": "github.com/inovacc/gitc (branch go-main)",
+  "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+  "pair": "go2rust",
+  "hash": "git-blob-sha1",
+  "note": "Hashes are git blob SHA-1 of each source file at source_commit (the sanctioned git-source equivalent to SHA-256 for drift detection).",
+  "modules": {
+    "uuidv7": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/uuidv7/uuidv7.go", "sha1": "d771d73756d5b72af3860db2f434c6f982583e54" },
+        { "path": "internal/uuidv7/uuidv7_test.go", "sha1": "4d52655a04ea08c3ba63df4be290ab8d1086e3e0" }
+      ],
+      "target_files": ["src/uuidv7.rs"],
+      "status": "verified"
+    },
+    "paths": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/paths/paths.go", "sha1": "957de58651893f07a0dbffb190095cb519a80daa" },
+        { "path": "internal/paths/paths_test.go", "sha1": "12634df0dd4fffa738a3cb2b3299fc9d55475a0e" }
+      ],
+      "target_files": ["src/paths.rs"],
+      "status": "verified"
+    },
+    "redact": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/redact/redact.go", "sha1": "e9b79bdcd93b62191bbf63bef9b1470d36208bdb" },
+        { "path": "internal/redact/redact_test.go", "sha1": "eeccaa79ac8841a9d2bf012c7f0ead098d82f8e7" }
+      ],
+      "target_files": ["src/redact.rs"],
+      "status": "verified"
+    },
+    "shortcut": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/shortcut/shortcut.go", "sha1": "d11dd72f17bb6d409faab229bdb207ca1c8c8932" },
+        { "path": "internal/shortcut/shortcut_test.go", "sha1": "7bccceaf8813907662ccc6254925db9a3d3e3813" }
+      ],
+      "target_files": ["src/shortcut.rs"],
+      "status": "verified"
+    },
+    "origin": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/origin/origin.go", "sha1": "e8e758ec5f1be3d823a91a1b6182e3f6e487839c" },
+        { "path": "internal/origin/origin_test.go", "sha1": "267d8e5f4b5cd6dd0bdb9b08ba191fabb74b2715" }
+      ],
+      "target_files": ["src/origin.rs"],
+      "status": "verified"
+    },
+    "policy": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/policy/config.go", "sha1": "23ab9f28933bf7169a2615c71cbe826127e78867" },
+        { "path": "internal/policy/policy.go", "sha1": "a1af452af652bec4ae1819436faccd31adafcfa2" },
+        { "path": "internal/policy/config_test.go", "sha1": "26de266c354bb657c639e284de2513319e0509bf" },
+        { "path": "internal/policy/policy_test.go", "sha1": "d91346cb5753a4f8ab6c04d193abfe5ac7481430" }
+      ],
+      "target_files": ["src/policy.rs"],
+      "status": "verified"
+    },
+    "gitargs:subcommand_index": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/gitargs/gitargs.go", "sha1": "552cbb209f39a6539d2653b2b7ad42ccbf3c59f0" }
+      ],
+      "target_files": ["src/gitargs.rs"],
+      "status": "verified",
+      "note": "SubcommandIndex only — the rest of gitargs is an independent equivalent port."
+    },
+    "installer/shim": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/installer/shim/embed.go", "sha1": "799980c3babb5b305e833fbbd18910074a166d67" },
+        { "path": "internal/installer/shim/embed_test.go", "sha1": "96fb8fbbcbdfbc9e98eb2476204fa582268bbde7" }
+      ],
+      "target_files": ["src/installer/shim.rs", "src/installer/shim_amd64.exe", "src/installer/shim_arm64.exe"],
+      "status": "verified",
+      "note": "shim_{amd64,arm64}.exe + shim.c are prebuilt assets embedded via include_bytes!; regenerated out-of-band, not built by cargo."
+    },
+    "enrich": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/enrich/enrich.go", "sha1": "d96cfc198a7d6be7e2fb06efe24de7998cbc8a65" },
+        { "path": "internal/enrich/enrich_test.go", "sha1": "7c6a0003f879b429157318c7e299c829ce9b715c" }
+      ],
+      "target_files": ["src/enrich.rs"],
+      "status": "verified"
+    },
+    "backend": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/backend/backend.go", "sha1": "2c377097f238c93465b0d97e3f1b61cb30b24b3a" },
+        { "path": "internal/backend/backend_test.go", "sha1": "cff70b923e34c8e6211added348d676b76c12c8a" }
+      ],
+      "target_files": ["src/backend.rs"],
+      "status": "verified",
+      "note": "Documented deviations: Windows os.SameFile inode fallback not reproduced; context.Context dropped (pack rule)."
+    },
+    "settings": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/settings/settings.go", "sha1": "cd954e1c4ddbfb5645a7cabbe44a11af6ef0802a" },
+        { "path": "internal/settings/lock.go", "sha1": "b4790e857b9c86bf83883371cb19edf63e8c1a13" },
+        { "path": "internal/settings/settings_test.go", "sha1": "1d2ca4aa2b91cd47edcae4a77a69fc42d3460b16" },
+        { "path": "internal/settings/lock_test.go", "sha1": "72983b9de2260e3bb70ac90afdee1ca0c518d954" }
+      ],
+      "target_files": ["src/settings.rs"], "status": "verified"
+    },
+    "cmdtree": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/cmdtree/cmdtree.go", "sha1": "434574d9e8014333fbc8acde6bfa1abee6f71f19" },
+        { "path": "internal/cmdtree/cmdtree_test.go", "sha1": "a672e0f29f830e765ec188db99ff3f06a65ed61a" }
+      ],
+      "target_files": ["src/cmdtree.rs"], "status": "verified"
+    },
+    "router": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/router/router.go", "sha1": "28e9b6ee41767bcb9e09a9f8067d1e9390ce1fe9" },
+        { "path": "internal/router/router_test.go", "sha1": "86d062edda62627afdeaa0d2911204da33aab459" }
+      ],
+      "target_files": ["src/router.rs"], "status": "verified"
+    },
+    "selfupdate": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/selfupdate/selfupdate.go", "sha1": "b1e6364166db3b6d361d61bcd2b82cd93af3cf6a" },
+        { "path": "internal/selfupdate/selfupdate_test.go", "sha1": "c20e7226cc4dd13c467e6aa58347f45ec2004161" },
+        { "path": "internal/selfupdate/apply_test.go", "sha1": "f8752cbe2872b05afc0d2d6a132fab33496c656b" }
+      ],
+      "target_files": ["src/selfupdate.rs"], "status": "verified",
+      "note": "HTTP injected via a trait; ureq deferred to binary wiring. Network is ask-before-run."
+    },
+    "store": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/store/store.go", "sha1": "18c3788637edbd77e3fa4dd67e514df44736a519" },
+        { "path": "internal/store/query.go", "sha1": "2bd7d4f8b12761374a8bb4780622cff085895851" },
+        { "path": "internal/store/store_test.go", "sha1": "e7f66bcea41488436a9aa2b2ab3841aa9c1a6ecc" },
+        { "path": "internal/store/errpath_test.go", "sha1": "d7b596b062d0dcaa1e8a7cca166c75ab5c25f203" },
+        { "path": "internal/store/policypath_test.go", "sha1": "f2f4228a994a7145fbc8b0e1cb5ade612f54e1a9" },
+        { "path": "internal/store/concurrency_test.go", "sha1": "5efb8f168590514032d11572bd2a3e4bef7982cd" },
+        { "path": "internal/store/migrations/0001_audit.sql", "sha1": "a2b6fca4aae2f83d1b27223cf2d9b0f6387ea41f" },
+        { "path": "internal/store/migrations/0002_audit_chain.sql", "sha1": "addd15f41bf88cf2fac720562b1d0488ffbe7fec" },
+        { "path": "internal/store/migrations/0003_resolved_policy_path.sql", "sha1": "573772ad2289f646881abee647a6b81fbb0418ae" }
+      ],
+      "target_files": ["src/store.rs", "src/store_migrations/0001_audit.sql", "src/store_migrations/0002_audit_chain.sql", "src/store_migrations/0003_resolved_policy_path.sql"],
+      "status": "verified",
+      "note": "Hash-chain preimage reproduced byte-for-byte; rusqlite(bundled) compiles SQLite C (works under host gcc + zig cc cross)."
+    },
+    "doctor": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/doctor/doctor.go", "sha1": "a6bf417c5f997ddca7ac20968273f18cdce8ccae" },
+        { "path": "internal/doctor/doctor_test.go", "sha1": "fbbcc9725c3bcf16f9601d1f33aacae6a3345ea9" }
+      ],
+      "target_files": ["src/doctor.rs"], "status": "verified",
+      "note": "lipgloss ANSI styling dropped (text verbatim); git --version timeout dropped (pack rule)."
+    },
+    "gitwin": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/gitwin/gitwin.go", "sha1": "3ba293ea72cc6768762db9f0d7d6bf1a1372407a" },
+        { "path": "internal/gitwin/manifest.go", "sha1": "7a0f0e2a6a2ebba5ca61921421a4c4b0e97333be" },
+        { "path": "internal/gitwin/pinned.go", "sha1": "8d083c6fd95be9da837ef436821a45c477789753" },
+        { "path": "internal/gitwin/tarbz2.go", "sha1": "61a7f72b4dd56e4e70be8ad8b96571e720794282" }
+      ],
+      "target_files": ["src/gitwin.rs"], "status": "verified",
+      "note": "23 tests; reuses selfupdate::HttpClient; zip/tar/bzip2 format crates, traversal guards hand-ported; ureq deferred to binary wiring."
+    },
+    "installer": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/installer/installer.go", "sha1": "da6ec3db89996f42ac60eae2d4e2b0b9d1b89175" },
+        { "path": "internal/installer/installer_test.go", "sha1": "1ab585328fc1e461c30f6050d56858e91a5df359" },
+        { "path": "internal/installer/path_test.go", "sha1": "64d54d541d1afbbe9b8b2e89f55869b4dd68f877" }
+      ],
+      "target_files": ["src/installer/installer.rs"], "status": "verified",
+      "note": "os.SameFile inode -> canonical-path identity (stable-std); PATH via powershell."
+    },
+    "runner": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/runner/runner.go", "sha1": "b1d9269c37ad1c47ab1fc58d35a28f59f3d6fe20" },
+        { "path": "internal/runner/runner_test.go", "sha1": "fc33f9256d8aadb0e59c80fc282eef7a04892787" },
+        { "path": "internal/runner/gate_test.go", "sha1": "c82bf72b0fa14458b2d1e7f33707180f5a2dc195" },
+        { "path": "internal/runner/envredact_test.go", "sha1": "8813cdfc5e610af4ff89f9bc4d8cfecd87571b47" }
+      ],
+      "target_files": ["src/runner.rs"], "status": "verified",
+      "note": "Gate invoked first (fail-closed); env-subset redacted; os_user from env, identity empty (no std user-DB)."
+    },
+    "gates": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "gates.go", "sha1": "1b09c039735da34cbdc2218cd6d293e3529d9e7d" },
+        { "path": "gates_test.go", "sha1": "c19258b0b9ce58a41f5e607caae243a189fd1bd1" }
+      ],
+      "target_files": ["src/gates.rs"], "status": "verified",
+      "note": "Security-critical: resolvePolicy fail-closed + remote allowlist/rewrite + dedupe. Scanning rebuilt on detect::Detector. git-query 5s timeout not reproduced (flagged)."
+    },
+    "provision": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/provision/provision.go", "sha1": "116ed8df95d9d1ce6dc37a9db89b7a14b2194af6" },
+        { "path": "internal/provision/provision_test.go", "sha1": "14a36b1925a76766ab090a2d4f9af034cdaa14b3" }
+      ],
+      "target_files": ["src/provision.rs"], "status": "verified"
+    },
+    "auditcmd": {
+      "source_commit": "5685cad5978bd2a744458fe98aa56caaec5e6aab",
+      "source_files": [
+        { "path": "internal/auditcmd/audit.go", "sha1": "7d0694ba053b6d474bc90088cf90571621f9c143" },
+        { "path": "internal/auditcmd/tui.go", "sha1": "873eef6df9724fdaac6b9763ba743aee6fe05417" },
+        { "path": "internal/auditcmd/tui_test.go", "sha1": "a5a1980937fd602334b3351cc383187f93d40cc3" }
+      ],
+      "target_files": ["src/auditcmd.rs"], "status": "verified",
+      "note": "TUI Model/Update ported pure (testable); ratatui+crossterm only in the live loop; lipgloss styling dropped."
+    }
+  }
+}

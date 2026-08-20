@@ -1,8 +1,19 @@
 /target
-Cargo.lock
 desktop.ini
+# NOTE: Cargo.lock is deliberately NOT ignored. gitc ships a binary, so the lock
+# is what makes a tagged build reproducible and lets CI use `--locked`; ignoring
+# it pinned nothing for anyone downstream.
+
+# IDE + local helper scripts (machine-specific absolute paths).
+.idea/
+.scripts/
 # git's own build output inside the vendored submodule (objects, archives,
 # binaries). The SOURCE is tracked by the submodule; the artifacts are not.
 vendor/git/**/*.o
 vendor/git/**/*.a
 vendor/git/**/*.exe
+
+# /project:* local-only working state (alignment, tracking, ai ledgers)
+docs/.project/
+target-verify/
+
