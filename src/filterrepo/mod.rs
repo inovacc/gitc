@@ -21,6 +21,7 @@ pub mod bytesutil;
 pub mod cleanup;
 pub mod commitfilter;
 pub mod gitutils;
+pub mod identity;
 pub mod idmap;
 pub mod parser;
 pub mod pathfilter;

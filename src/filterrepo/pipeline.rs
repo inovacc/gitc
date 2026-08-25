@@ -22,6 +22,7 @@ use std::thread::JoinHandle;
 use super::blobfilter::replace_blob_text;
 use super::commitfilter::{CommitFilter, PruneMode};
 use super::gitutils::{self, default_git_binary};
+use super::identity::IdentityRewrite;
 use super::parser::{Callbacks, FastExportParser};
 use super::pathfilter::filter_files;
 use super::pathspec::PathSpec;
@@ -54,6 +55,8 @@ pub struct Options<'a> {
     pub paths: Option<&'a PathSpec>,
     /// When non-empty, applies textual substitutions to blob contents.
     pub replace_text: Option<&'a ReplaceRules>,
+    /// When set, rewrites matching commit author/committer identities.
+    pub identity: Option<&'a IdentityRewrite>,
     /// How commits that become empty are handled.
     pub prune: PruneMode,
     /// Bypass the fresh-clone sanity check.
@@ -177,7 +180,13 @@ pub fn run(opts: &Options) -> Result<(), PipelineError> {
     let cb_err: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let run_err = {
         let cf = CommitFilter::new(opts.prune);
-        let cb = build_callbacks(cf, opts.paths, opts.replace_text, cb_err.clone());
+        let cb = build_callbacks(
+            cf,
+            opts.paths,
+            opts.replace_text,
+            opts.identity,
+            cb_err.clone(),
+        );
         // `sink` (the import stdin) is dropped when run returns, signaling EOF.
         parser.run(BufReader::new(export_out), sink, cb).err()
     };
@@ -222,6 +231,7 @@ fn build_callbacks<'a>(
     mut cf: CommitFilter,
     paths: Option<&'a PathSpec>,
     rules: Option<&'a ReplaceRules>,
+    identity: Option<&'a IdentityRewrite>,
     cb_err: Rc<RefCell<Option<String>>>,
 ) -> Callbacks<'a> {
     let mut cb = Callbacks::default();
@@ -245,6 +255,14 @@ fn build_callbacks<'a>(
                 *cb_err.borrow_mut() = Some(format!("filterrepo: filtering files: {e}"));
                 c.el.skip();
                 return;
+            }
+        }
+        if let Some(identity) = identity {
+            if identity.rewrite_author {
+                identity.apply(&mut c.author);
+            }
+            if identity.rewrite_committer {
+                identity.apply(&mut c.committer);
             }
         }
         cf.tweak(c, had_file_changes);
@@ -447,6 +465,41 @@ mod tests {
         assert!(head.contains("REDACTED"), "replacement missing: {head}");
         assert!(!head.contains(secret), "secret still in HEAD config.txt");
         rg(&git, &d, &["fsck", "--full"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "needs a plain git; run with LENSR_GIT_REAL_GIT set"]
+    fn e2e_rewrites_matching_identity() {
+        let git = default_git_binary();
+        let dir = temp_dir("identity");
+        let d = dir.to_string_lossy().into_owned();
+        rg(&git, &d, &["init", "-q", "-b", "main"]);
+        rg(&git, &d, &["config", "user.name", "Old Author"]);
+        rg(&git, &d, &["config", "user.email", "old@example.test"]);
+        rg(&git, &d, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join("file.txt"), b"unchanged\n").unwrap();
+        rg(&git, &d, &["add", "file.txt"]);
+        rg(&git, &d, &["commit", "-q", "-m", "identity fixture"]);
+
+        let identity = super::super::identity::IdentityRewrite::new(
+            Some(b"old@example.test".to_vec()),
+            None,
+            b"New Maintainer".to_vec(),
+            b"new@example.test".to_vec(),
+        );
+        let opts = Options {
+            repo_dir: d.clone(),
+            git_bin: git.clone(),
+            identity: Some(&identity),
+            force: true,
+            ..Default::default()
+        };
+        run(&opts).expect("identity rewrite");
+        let author = rg(&git, &d, &["show", "-s", "--format=%an <%ae>", "HEAD"]);
+        let committer = rg(&git, &d, &["show", "-s", "--format=%cn <%ce>", "HEAD"]);
+        assert_eq!(author, "New Maintainer <new@example.test>");
+        assert_eq!(committer, "New Maintainer <new@example.test>");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

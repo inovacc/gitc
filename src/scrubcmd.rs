@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use crate::filterrepo::commitfilter::PruneMode;
 use crate::filterrepo::gitutils::{default_git_binary, git_output};
+use crate::filterrepo::identity::IdentityRewrite;
 use crate::filterrepo::pathspec::PathSpec;
 use crate::filterrepo::pipeline::{self, Options, PipelineError};
 use crate::filterrepo::replacetext::{parse_replace_text, LiteralReplace, ReplaceRules};
@@ -58,6 +59,12 @@ struct Opts {
     redaction: String,         // replacement text for `secret`/bare `replace`
     replace_file: String,
     output: String, // serialize a plan to this JSON file (§8)
+    identity_match_email: String,
+    identity_match_name: String,
+    identity_name: String,
+    identity_email: String,
+    identity_author_only: bool,
+    identity_committer_only: bool,
     positional: Vec<String>,
 }
 
@@ -78,6 +85,12 @@ impl Default for Opts {
             redaction: DEFAULT_REDACTION.to_string(),
             replace_file: String::new(),
             output: String::new(),
+            identity_match_email: String::new(),
+            identity_match_name: String::new(),
+            identity_name: String::new(),
+            identity_email: String::new(),
+            identity_author_only: false,
+            identity_committer_only: false,
             positional: Vec::new(),
         }
     }
@@ -94,6 +107,7 @@ pub fn run(args: &[String]) -> i32 {
         "path" => cmd_path(rest),
         "blob" => cmd_blob(rest),
         "replace" => cmd_replace(rest),
+        "identity" => cmd_identity(rest),
         "secret" => cmd_secret(rest),
         "rollback" => cmd_rollback(rest),
         "cleanup" => cmd_cleanup(rest),
@@ -114,6 +128,8 @@ fn usage() -> &'static str {
        gitc scrub blob <oid>...             remove path(s) carrying the given blob object(s)\n\
        gitc scrub replace <from>=<to>...    redact literal text in blobs\n\
        gitc scrub replace --replace-file <f>  redact per a git-filter-repo rules file\n\
+       gitc scrub identity --match-email <old> --name <new> --email <new>\n\
+                                      rewrite matching author/committer metadata\n\
        gitc scrub secret [<fingerprint>]    redact every detected secret, or one finding by id\n\
        gitc scrub rollback                  restore refs from the most recent backup\n\
        gitc scrub cleanup                   expire reflogs + gc so old object bytes are removed\n\
@@ -133,6 +149,12 @@ fn usage() -> &'static str {
        --no-backup       skip the pre-rewrite bundle/ref backup (not recommended)\n\
        --to <text>       replacement text for secret/bare-replace (default ***REMOVED***)\n\
        --replace-file <f>  git-filter-repo replace-text rules file\n\
+       --match-email <e>  exact email to match for identity rewrites\n\
+       --match-name <n>   exact name to match for identity rewrites\n\
+       --name <n>         replacement author/committer name\n\
+       --email <e>        replacement author/committer email\n\
+       --author-only      rewrite authors but leave committers unchanged\n\
+       --committer-only   rewrite committers but leave authors unchanged\n\
        --prune-backups   cleanup: also delete local scrub backups\n\
        --strip-invalid-signatures  acknowledge that the rewrite invalidates signatures (§12)\n\
      \n\
@@ -165,6 +187,12 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--to" | "--redaction" => o.redaction = take(args, &mut i, a)?,
             "--replace-file" => o.replace_file = take(args, &mut i, a)?,
             "--output" => o.output = take(args, &mut i, a)?,
+            "--match-email" => o.identity_match_email = take(args, &mut i, a)?,
+            "--match-name" => o.identity_match_name = take(args, &mut i, a)?,
+            "--name" => o.identity_name = take(args, &mut i, a)?,
+            "--email" => o.identity_email = take(args, &mut i, a)?,
+            "--author-only" => o.identity_author_only = true,
+            "--committer-only" => o.identity_committer_only = true,
             "-h" | "--help" => return Err("help".to_string()),
             s if s.starts_with("--") => return Err(format!("unknown flag '{s}'")),
             _ => o.positional.push(a.clone()),
@@ -393,7 +421,7 @@ fn cmd_path(args: &[String]) -> i32 {
         return plan_path(&o);
     }
     let what = format!("removed {} path pattern(s)", o.positional.len());
-    do_rewrite(&o, Some(&spec), None, &what)
+    do_rewrite(&o, Some(&spec), None, None, &what)
 }
 
 /// `gitc scrub blob <oid>...` (§6) — remove the path(s) carrying the given blob
@@ -451,7 +479,7 @@ fn cmd_blob(args: &[String]) -> i32 {
         "removed {} path(s) carrying the target blob(s)",
         paths.len()
     );
-    do_rewrite(&o, Some(&spec), None, &what)
+    do_rewrite(&o, Some(&spec), None, None, &what)
 }
 
 fn cmd_replace(args: &[String]) -> i32 {
@@ -476,7 +504,40 @@ fn cmd_replace(args: &[String]) -> i32 {
         warn_signatures(o.strip_sigs);
         return EXIT_CLEAN;
     }
-    do_rewrite(&o, None, Some(&rules), "redacted text")
+    do_rewrite(&o, None, Some(&rules), None, "redacted text")
+}
+
+/// Rewrite exact author/committer metadata without touching blobs or paths.
+fn cmd_identity(args: &[String]) -> i32 {
+    let o = match parse(args) {
+        Ok(o) => o,
+        Err(e) => return usage_err(&e),
+    };
+    if o.identity_match_email.is_empty() && o.identity_match_name.is_empty() {
+        return usage_err("`gitc scrub identity` needs --match-email and/or --match-name");
+    }
+    if o.identity_name.is_empty() || o.identity_email.is_empty() {
+        return usage_err("`gitc scrub identity` needs both --name and --email replacements");
+    }
+    if o.identity_author_only && o.identity_committer_only {
+        return usage_err("`--author-only` and `--committer-only` cannot be combined");
+    }
+    let mut rewrite = IdentityRewrite::new(
+        (!o.identity_match_email.is_empty()).then(|| o.identity_match_email.as_bytes().to_vec()),
+        (!o.identity_match_name.is_empty()).then(|| o.identity_match_name.as_bytes().to_vec()),
+        o.identity_name.as_bytes().to_vec(),
+        o.identity_email.as_bytes().to_vec(),
+    );
+    rewrite.rewrite_author = !o.identity_committer_only;
+    rewrite.rewrite_committer = !o.identity_author_only;
+    if o.plan {
+        println!("gitc scrub identity — PLAN (no changes will be made)");
+        println!("  matching identity metadata will be replaced across the selected history");
+        warn_signatures(o.strip_sigs);
+        return EXIT_CLEAN;
+    }
+    let what = "rewrote matching author/committer identity metadata";
+    do_rewrite(&o, None, None, Some(&rewrite), what)
 }
 
 fn cmd_secret(args: &[String]) -> i32 {
@@ -523,7 +584,7 @@ fn cmd_secret(args: &[String]) -> i32 {
     }
     let rules = secrets_to_rules(&secrets, &o.redaction);
     let what = format!("redacted {} secret(s)", secrets.len());
-    let code = do_rewrite(&o, None, Some(&rules), &what);
+    let code = do_rewrite(&o, None, Some(&rules), None, &what);
     if code != EXIT_CLEAN || o.dry_run {
         return code;
     }
@@ -685,7 +746,13 @@ fn count_unreachable(git: &str, repo: &str) -> usize {
 // ── rewrite orchestration ────────────────────────────────────────────────────
 
 /// Run a rewrite behind the safety fence: preconditions → backup → pipeline.
-fn do_rewrite(o: &Opts, paths: Option<&PathSpec>, rules: Option<&ReplaceRules>, what: &str) -> i32 {
+fn do_rewrite(
+    o: &Opts,
+    paths: Option<&PathSpec>,
+    rules: Option<&ReplaceRules>,
+    identity: Option<&IdentityRewrite>,
+    what: &str,
+) -> i32 {
     let git = resolve_git();
     let repo = match repo_root(&git) {
         Ok(r) => r,
@@ -716,6 +783,7 @@ fn do_rewrite(o: &Opts, paths: Option<&PathSpec>, rules: Option<&ReplaceRules>, 
         refs: resolve_refs(o),
         paths,
         replace_text: rules,
+        identity,
         prune: PruneMode::Auto,
         force: o.force,
         dry_run: o.dry_run,
@@ -1245,6 +1313,27 @@ mod tests {
         assert!(fp_matches("abc123:src/x.rs:aws:5", "v1:abc123")); // query v1-prefixed
         assert!(!fp_matches("abc123:src/x.rs:aws:5", "zzz"));
         assert!(!fp_matches("abc123:src/x.rs:aws:5", ""));
+    }
+
+    #[test]
+    fn parse_identity_rewrite_flags() {
+        let args = [
+            "--match-email",
+            "old@example.test",
+            "--name",
+            "Maintainer",
+            "--email",
+            "new@example.test",
+            "--author-only",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
+        let parsed = parse(&args).expect("identity flags parse");
+        assert_eq!(parsed.identity_match_email, "old@example.test");
+        assert_eq!(parsed.identity_name, "Maintainer");
+        assert_eq!(parsed.identity_email, "new@example.test");
+        assert!(parsed.identity_author_only);
     }
 
     #[test]
