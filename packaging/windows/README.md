@@ -17,6 +17,7 @@ The backend directory must contain the normal Git-for-Windows layout, including
 associated templates/share files. NSIS must be installed with `makensis.exe` on
 `PATH`.
 
-The installer prepends the public `gitc` bin directory to the machine PATH and
-registers `GITC_GIT_BACKEND` to the bundled backend. It does not uninstall or
-delete another Git installation.
+The installer prepends only the public `gitc` bin directory to the machine PATH
+and registers `GITC_GIT_BACKEND` to the bundled backend. Backend helper folders
+are intentionally not added to PATH, preventing direct helper/shell discovery
+from bypassing gitc. It does not uninstall or delete another Git installation.

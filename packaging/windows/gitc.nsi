@@ -58,15 +58,6 @@ Section "Install PATH and backend registration" SecEnvironment
     "GITC_GIT_BACKEND" "$INSTDIR\backend\cmd\git.exe"
   Push "$INSTDIR\bin"
   Call AddMachinePath
-  ; The backend helper directories are appended after gitc's public bin. This
-  ; exposes git-bash/sh and remote helpers without allowing backend git.exe to
-  ; shadow the public gitc command.
-  Push "$INSTDIR\backend\cmd"
-  Call AddMachinePath
-  Push "$INSTDIR\backend\usr\bin"
-  Call AddMachinePath
-  Push "$INSTDIR\backend\mingw64\bin"
-  Call AddMachinePath
   Call BroadcastEnvironment
 SectionEnd
 
@@ -74,12 +65,6 @@ Section "Uninstall"
   DeleteRegValue HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
     "GITC_GIT_BACKEND"
   Push "$INSTDIR\bin"
-  Call RemoveMachinePath
-  Push "$INSTDIR\backend\cmd"
-  Call RemoveMachinePath
-  Push "$INSTDIR\backend\usr\bin"
-  Call RemoveMachinePath
-  Push "$INSTDIR\backend\mingw64\bin"
   Call RemoveMachinePath
   Call BroadcastEnvironment
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\gitc"

@@ -305,16 +305,6 @@ fn gitc_tree() -> CmdNode {
             "git cmdtree [-b|-c NAME|--json]",
             "Display this command tree",
         ),
-        node(
-            "sh",
-            "git gitc sh [args]",
-            "Launch the managed backend's POSIX sh (also the sh shim)",
-        ),
-        node(
-            "bash",
-            "git gitc bash [args]",
-            "Launch the managed backend's bash (also the bash shim)",
-        ),
     ];
 
     let mut shortcuts: Vec<CmdNode> = Vec::new();
