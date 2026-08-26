@@ -103,6 +103,36 @@ fn gitc_tree() -> CmdNode {
             "file of redaction rules to apply to blobs",
         ),
         flag(
+            "match-email",
+            "",
+            "string",
+            "",
+            "exact identity email to rewrite",
+        ),
+        flag(
+            "match-name",
+            "",
+            "string",
+            "",
+            "exact identity name to rewrite",
+        ),
+        flag("name", "", "string", "", "replacement identity name"),
+        flag("email", "", "string", "", "replacement identity email"),
+        flag(
+            "author-only",
+            "",
+            "bool",
+            "",
+            "rewrite authors but not committers",
+        ),
+        flag(
+            "committer-only",
+            "",
+            "bool",
+            "",
+            "rewrite committers but not authors",
+        ),
+        flag(
             "prune",
             "",
             "string",
@@ -274,16 +304,6 @@ fn gitc_tree() -> CmdNode {
             "cmdtree",
             "git cmdtree [-b|-c NAME|--json]",
             "Display this command tree",
-        ),
-        node(
-            "sh",
-            "git gitc sh [args]",
-            "Launch the managed backend's POSIX sh (also the sh shim)",
-        ),
-        node(
-            "bash",
-            "git gitc bash [args]",
-            "Launch the managed backend's bash (also the bash shim)",
         ),
     ];
 

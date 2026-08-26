@@ -38,47 +38,56 @@ pub fn shell_name(arg0: &str) -> Option<String> {
 /// install tree, not the caller's PATH — with `args`, inheriting stdio and
 /// propagating the exit code. Faithful port of Go `runShell`.
 pub fn run_shell(name: &str, args: &[String]) -> i32 {
-    let self_path = std::env::current_exe().unwrap_or_default();
+    // A user-facing shell would provide a lateral route to invoke the bundled
+    // backend directly, bypassing gitc's policy and audit stages. Shell support
+    // remains available internally to Git hooks, but is never exposed as a gitc
+    // command or launcher.
+    let _ = args;
+    eprintln!("gitc {name}: shell launch is disabled; invoke Git through gitc");
+    return 1;
 
-    let b = match backend::resolve(provision::managed_git_path().as_deref(), &self_path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("gitc {name}: {e}");
-            return 1;
+    #[allow(unreachable_code)]
+    {
+        let self_path = std::env::current_exe().unwrap_or_default();
+
+        let b = match backend::resolve(provision::managed_git_path().as_deref(), &self_path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("gitc {name}: {e}");
+                return 1;
+            }
+        };
+
+        // `<version>/cmd/git.exe` -> `<version>` (dir of dir of the git binary).
+        let root = b
+            .path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+
+        let shell = match find_backend_shell(&root, name) {
+            Some(s) => s,
+            None => {
+                eprintln!("gitc {name}: no {name} in the git backend; run `git fetch-git --full`");
+                return 1;
+            }
+        };
+
+        let mut cmd = std::process::Command::new(&shell);
+        cmd.args(args);
+        cmd.env_clear();
+        for (k, v) in shell_env(&root) {
+            cmd.env(k, v);
         }
-    };
+        // Inherit stdio (the std default): stdin/stdout/stderr flow to the child.
 
-    // `<version>/cmd/git.exe` -> `<version>` (dir of dir of the git binary).
-    let root = b
-        .path
-        .parent()
-        .and_then(|p| p.parent())
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-
-    let shell = match find_backend_shell(&root, name) {
-        Some(s) => s,
-        None => {
-            eprintln!(
-                "gitc {name}: no {name} in the git backend; run `git fetch-git --full`"
-            );
-            return 1;
-        }
-    };
-
-    let mut cmd = std::process::Command::new(&shell);
-    cmd.args(args);
-    cmd.env_clear();
-    for (k, v) in shell_env(&root) {
-        cmd.env(k, v);
-    }
-    // Inherit stdio (the std default): stdin/stdout/stderr flow to the child.
-
-    match cmd.status() {
-        Ok(status) => status.code().unwrap_or(1),
-        Err(e) => {
-            eprintln!("gitc {name}: {e}");
-            1
+        match cmd.status() {
+            Ok(status) => status.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("gitc {name}: {e}");
+                1
+            }
         }
     }
 }

@@ -44,11 +44,10 @@
 //!
 //! ## Recursion
 //!
-//! A stage may legitimately want to run git — the enforcement gate shells out to
-//! `rev-parse` and `remote get-url`. Since gitc *is* git, that re-enters this
-//! binary. [`GUARD_ENV`] is set for any child gitc spawns from stage context and
-//! short-circuits [`run_pre`] / [`arm_post`], so a stage cannot recurse into
-//! itself. Without it, a single `git commit` would fork bomb.
+//! Policy checks use the private backend executable, so they do not re-enter
+//! gitc. [`GUARD_ENV`] remains reserved for configured helper processes, but its
+//! presence is treated as an untrusted marker and fails closed; it is never a
+//! permission to skip enforcement.
 //!
 //! ## Scope
 //!
@@ -175,7 +174,8 @@ unsafe extern "C" {
     fn atexit(cb: extern "C" fn()) -> c_int;
 }
 
-/// Reports whether this process is a stage-spawned child (see [`GUARD_ENV`]).
+/// Reports whether an internal-stage marker was supplied (see [`GUARD_ENV`]).
+/// The marker is intentionally not treated as proof of trust.
 pub fn suppressed() -> bool {
     std::env::var_os(GUARD_ENV).is_some()
 }
@@ -208,11 +208,17 @@ fn default_registry() -> Registry {
 
 /// Runs the pre stages. Returns the first [`Flow::Block`], else [`Flow::Continue`].
 ///
-/// `argv` excludes `argv[0]`. A stage-spawned child short-circuits to
-/// [`Flow::Continue`] (see [`GUARD_ENV`]).
+/// `argv` excludes `argv[0]`. A process carrying [`GUARD_ENV`] is rejected
+/// fail-closed rather than being allowed around the policy stages.
 pub fn run_pre(argv: &[String]) -> Flow {
     if suppressed() {
-        return Flow::Continue;
+        // This marker is an implementation detail, not an authorization token.
+        // Treating any user-supplied value as permission to skip enforcement would
+        // make `GITC_IN_STAGE=1 git push` a trivial bypass.
+        eprintln!("gitc: BLOCKED — internal stage marker cannot be supplied externally");
+        BLOCKED.store(true, Ordering::SeqCst);
+        record_exit(1);
+        return Flow::Block(1);
     }
 
     for s in &registry().pre {
@@ -339,12 +345,31 @@ mod builtin {
         }
 
         fn run(&self, argv: &[String]) -> Flow {
-            // gitc IS git, so the gate's git subprocesses are this binary. The
-            // GUARD_ENV set by `spawn_guarded` stops those children re-entering the
-            // stage machinery.
+            // Gate queries must use the managed/system backend, never this gitc
+            // executable. That avoids recursive re-entry without relying on a
+            // user-forgeable environment marker.
             let git = std::env::current_exe()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .ok()
+                .and_then(|self_path| {
+                    crate::backend::resolve(
+                        crate::provision::managed_git_path().as_deref(),
+                        &self_path,
+                    )
+                    .ok()
+                })
+                .map(|b| b.path.to_string_lossy().into_owned());
+
+            let Some(git) = git else {
+                eprintln!("gitc: BLOCKED — no trusted Git backend available for policy checks");
+                crate::repostate::record_gate(
+                    self.name(),
+                    "internal",
+                    "block",
+                    1,
+                    subcommand(argv),
+                );
+                return Flow::Block(1);
+            };
 
             let (code, blocked) = crate::gates::enforce_gates(argv, &git);
 
@@ -656,7 +681,7 @@ mod tests {
     /// A stage-spawned child must not re-enter the stage machinery, or a gate that
     /// shells out to git would fork bomb.
     #[test]
-    fn guard_env_suppresses_pre_stages() {
+    fn guard_env_fails_closed_instead_of_suppressing_pre_stages() {
         let prev = std::env::var_os(GUARD_ENV);
         std::env::set_var(GUARD_ENV, "1");
         let flow = run_pre(&sv(&["push", "origin"]));
@@ -667,8 +692,8 @@ mod tests {
 
         assert_eq!(
             flow,
-            Flow::Continue,
-            "a stage-spawned child must skip the pre chain"
+            Flow::Block(1),
+            "an externally marked child must be blocked, never allowed around the gate"
         );
     }
 
@@ -683,6 +708,9 @@ mod tests {
             None => std::env::remove_var(GUARD_ENV),
         }
 
-        assert!(!armed, "arm_post must not register atexit in a guarded child");
+        assert!(
+            !armed,
+            "arm_post must not register atexit in a guarded child"
+        );
     }
 }

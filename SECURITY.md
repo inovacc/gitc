@@ -56,6 +56,7 @@ Finding identities are stable canonical fingerprints `[commit:]file:rule:line`.
 | `gitc scrub path <glob>...` | remove matching paths from all history |
 | `gitc scrub blob <oid>...` | remove path(s) carrying a blob object |
 | `gitc scrub replace <from>=<to>... \| --replace-file <f>` | redact literal / rules text |
+| `gitc scrub identity --match-email <e> --name <n> --email <e>` | rewrite exact author/committer metadata |
 | `gitc scrub rollback` | restore refs+objects from the latest backup |
 | `gitc scrub cleanup [--prune-backups]` | expire reflogs + gc old object bytes |
 

@@ -252,9 +252,12 @@ pub fn run_meta(ctx: &Ctx, args: &[String], st: Option<&Store>, http: &dyn HttpC
             &args[1..],
         ),
         "cmdtree" => cmdtree::run(&args[1..]),
-        // `git gitc sh` / `git gitc bash` — launch the managed backend's shell. The
-        // installed sh.exe/bash.exe shims reach this same logic by name.
-        "sh" | "bash" => shell::run_shell(cmd, &args[1..]),
+        // Shell launch is intentionally disabled: exposing a backend shell would
+        // provide a lateral route around gitc's gate and audit stages.
+        "sh" | "bash" => {
+            eprintln!("gitc: shell launch is disabled; invoke Git through gitc");
+            1
+        }
         "backend-update" => backendupdate::run_backend_update(http),
         _ => {
             eprintln!("gitc: unknown command {cmd:?}");
@@ -362,7 +365,6 @@ pub fn print_meta_help() {
     eprintln!("  git install [--apply]   install the PATH shim (--apply prepends PATH)");
     eprintln!("  git uninstall           remove the PATH shim");
     eprintln!("  git cmdtree [-b|--json] show the full command tree");
-    eprintln!("  git gitc sh|bash [args] launch the managed backend's shell (also the sh/bash shims)");
     eprintln!("  git sync|undo|log-graph|quick-commit    built-in shortcuts");
     eprintln!("  git gitc version        print gitc's own version");
 }
